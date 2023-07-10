@@ -90,9 +90,7 @@ class TurbineArray():
             # make the variables more accessible
             if self.verbose: 
                 print("\tAdding convenience variables...")
-                
-            self.turbine = self.turbines[0]
-            
+
             for key in self.turbine.input_nml['actuator_disk'].keys(): 
                 self.__dict__[key] = self.turbine.input_nml['actuator_disk'][key]
         
