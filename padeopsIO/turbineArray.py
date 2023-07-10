@@ -54,13 +54,13 @@ class TurbineArray():
                 # begin reading in turbines
                 filenames = os.listdir(turb_dir)
                 filenames.sort()  # sort these into ascending order
+                if self.verbose: 
+                    print("Reading turbines from the following files:\n", filenames)
+
                 for i, filename in enumerate(filenames): 
-                    if i >= self.num_turbines: 
-                        break  # only read in up to num_turbines turbines
-                        
-                    turb_nml = parser.read(os.path.join(turb_dir, filename))
+                    turb_nml = parser(os.path.join(turb_dir, filename))
                     init_ls.append(turb_nml)
-            else: 
+            elif self.verbose: 
                 print('__init__(): `turb_dir` superceded by `init_ls` kwarg.')
 
         if num_turbines is not None: 
@@ -77,9 +77,6 @@ class TurbineArray():
         # for now, each turbine can simply be a dictionary appended to a list
         self.array = []  # array is deprecated (06/01/2023)
         self.turbines = []
-        
-        if self.verbose: 
-            print("Reading turbines from the following files:\n", filenames)
 
         for i, turb_nml in enumerate(init_ls): 
             if i >= self.num_turbines: 
