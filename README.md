@@ -4,19 +4,36 @@ PadeOpsIO is a tool for loading, visualizing, and analyzing data from [PadeOps](
 
 ## Dependencies
 
-Aside from standard python library packages, PadeOpsIO requries: <br>
+Aside from standard python library packages, PadeOpsIO requires: <br>
 * `numpy` <br>
 * `scipy` <br>
 * `matplotlib` <br>
-* `f90nml` (This package isn't required unless loading data from Fortran; conveinently parses input namelist files)
+
+The `pyproject.toml` file lists the requirement Python >3.7, but if this causes issues it can be changed. `numpy` and `scipy` don't play nicely for some reason (to be resolved...) so they are left out of the `pyproject.toml` file. 
 
 ## Installation
 
-Download the repo from github. The module can be imported into a Python script with: 
+Clone the repo from GitHub. This can be done with: 
 ```
-import padeopsIO
+pip install git+https://github.com/kirbyh/PadeOpsIO.git
 ```
-If the module needs to be added to the system path, use `sys.path.append`. 
+
+Alternatively, for developers, clone the git repository locally and install it with editing enabled: 
+```
+# navigate to the installation directory
+cd $install_dir
+
+# clone the repo
+git clone -b main https://github.com/kirbyh/PadeOpsIO.git
+
+# then add with pip
+pip install . -e
+```
+
+The module can be imported into a Python script with: 
+```
+import padeopsIO as pio
+```
 
 ## Usage
 
