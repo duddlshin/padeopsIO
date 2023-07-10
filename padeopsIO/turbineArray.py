@@ -1,17 +1,15 @@
-import numpy as np
 import os
-import re
 import warnings
-import glob
 
-try: 
-    import f90nml
-except ImportError: 
-    warnings.warn("Could not find package f90nml in system path. ")
-    # TODO - handle this somehow
-    f90nml = None
+# try: 
+#     import f90nml
+# except ImportError: 
+#     warnings.warn("Could not find package f90nml in system path. ")
+#     # TODO - handle this somehow
+#     f90nml = None
 
 from padeopsIO.turbine import Turbine
+from padeopsIO.nml_utils import parser
     
 class TurbineArray(): 
     """
@@ -76,7 +74,7 @@ class TurbineArray():
             if i >= self.num_turbines: 
                 break  # only read in up to num_turbines turbines
                 
-            turb_nml = f90nml.read(os.path.join(turb_dir, filename))
+            turb_nml = parser.read(os.path.join(turb_dir, filename))
             self.array.append(turb_nml)
             self.turbines.append(Turbine(turb_nml, verbose=self.verbose, n=i+1, sort=self._sort_by))
             
@@ -143,7 +141,7 @@ class TurbineArray():
         """
         ret = self.__dict__.copy()
         if 'turbines' in ret.keys(): 
-            ret['turbines'] = str(ret['turbines'])  # save_mat does not like writing object files
+            ret['turbines'] = [t.input_nml for t in ret['turbines']]  # save input namelists
         return ret
     
     
