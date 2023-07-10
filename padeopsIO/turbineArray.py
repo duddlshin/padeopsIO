@@ -16,7 +16,9 @@ class TurbineArray():
     # TODO fix class docstring
     """
     
-    def __init__(self, turb_dir=None, num_turbines=None, init_dict=None, ADM_type=None, verbose=False, sort='xloc'): 
+    def __init__(self, turb_dir=None, num_turbines=None, 
+                 init_ls=[], init_dict=None, 
+                 ADM_type=None, verbose=False, sort='xloc'): 
         """
         Constructor function for a TurbineArray class
         
@@ -34,43 +36,52 @@ class TurbineArray():
         """
 
         # this initializes from a dictionary output by todict()
+        self.verbose = verbose
+        self._sort_by = sort
         if init_dict is not None: 
             self.fromdict(init_dict)
 
-            self.verbose = verbose
             if self.verbose: 
                 print("TurbineArray: Initialized from", turb_dir)
-
             return
         
         self.turb_dir = turb_dir
-        self.verbose = verbose
-        self._sort_by = sort
-        
-        # begin reading in turbines
-        filenames = os.listdir(turb_dir)
-        filenames.sort()  # sort these into ascending order
-        
+                
+        if turb_dir is not None: 
+            # glean namelist inputs from the turbine directory
+
+            if len(init_ls) == 0: 
+                # begin reading in turbines
+                filenames = os.listdir(turb_dir)
+                filenames.sort()  # sort these into ascending order
+                for i, filename in enumerate(filenames): 
+                    if i >= self.num_turbines: 
+                        break  # only read in up to num_turbines turbines
+                        
+                    turb_nml = parser.read(os.path.join(turb_dir, filename))
+                    init_ls.append(turb_nml)
+            else: 
+                print('__init__(): `turb_dir` superceded by `init_ls` kwarg.')
+
         if num_turbines is not None: 
             self.num_turbines = num_turbines
             
-            if num_turbines != len(filenames):  
+            if num_turbines != len(init_ls):  
                 warnings.warn("Not all turbines in the specified directory will be used")
 
                 if self.verbose: 
-                    print("\tRequested {:d} turbines, but found {:d} files.".format(num_turbines, len(filenames)))
+                    print("\tRequested {:d} turbines, but found {:d} files.".format(num_turbines, len(init_ls)))
         else: 
-            self.num_turbines = len(filenames)
+            self.num_turbines = len(init_ls)
             
-        
         # for now, each turbine can simply be a dictionary appended to a list
         self.array = []  # array is deprecated (06/01/2023)
         self.turbines = []
         
         if self.verbose: 
             print("Reading turbines from the following files:\n", filenames)
-            
-        for i, filename in enumerate(filenames): 
+
+        for i, turb_nml in enumerate(init_ls): 
             if i >= self.num_turbines: 
                 break  # only read in up to num_turbines turbines
                 
