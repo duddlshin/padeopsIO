@@ -143,8 +143,10 @@ class TurbineArray():
         """
         Converts self.__dict__ into a dictionary with no namelists. 
         """
-
-        return self.__dict__.copy()
+        ret = self.__dict__.copy()
+        if 'turbines' in ret.keys(): 
+            ret['turbines'] = str(ret['turbines'])  # save_mat does not like writing object files
+        return 
     
     
     def __str__(self): 
