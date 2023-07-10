@@ -146,7 +146,7 @@ class TurbineArray():
         ret = self.__dict__.copy()
         if 'turbines' in ret.keys(): 
             ret['turbines'] = str(ret['turbines'])  # save_mat does not like writing object files
-        return 
+        return ret
     
     
     def __str__(self): 
