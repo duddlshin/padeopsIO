@@ -7,13 +7,12 @@ from numpy.linalg import lstsq
 from scipy.optimize import curve_fit
 from scipy import optimize
 
-# import sys
-# sys.path.append(r'/home1/08445/tg877441/python_scripts/MITWake')  # TODO: Fix this
-# from mit_yaw_induction_wake_model import ActuatorDisk, Gradients
 from padeopsIO import ActuatorDisk
 
+
 # ===================== WAKE FITTING ==========================
-from scipy.optimize import curve_fit
+
+
 
 def gaussian_wake(r, sigma, u0, r0): 
     """
@@ -75,6 +74,28 @@ def _compare_wm(x, xG, yG, uwake_ref, CT, yaw, order=2, phi_hub=0):
 def calibrate_wm(xax, yax, uwake_ref, ct, yaw, order=2, phi_hub=0): 
     """
     Calibrate kw, sigma0 to a reference slice in the xy-plane. 
+
+    Parameters
+    ----------
+    xax : (Nx, )
+        Array of x-values for the truth data uwake_ref. 
+    yax : (Ny, )
+        Array of y-values for the truth data uwake_ref. 
+    uwake_ref : (Nx, Ny)
+        Array of \Delta u (wake deficit field) values. 
+    ct : float
+        C_T' modified thrust coefficient for the leading turbine. 
+    yaw : float
+        yaw (radians) of the leading turbine. 
+    order : int, optional
+        Order for taking norms; Default 2. 
+    phi_hub : float
+        Hub height wind direction, with respect to +x axis (radians)
+
+    Returns
+    -------
+    res : OptimizeResult
+        res.x contains the optimal (kw, sigma0)
     """
     x0 = [0.03, 0.25]
     xG, yG = np.meshgrid(xax, yax, indexing='ij')
