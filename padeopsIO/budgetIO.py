@@ -17,6 +17,7 @@ import padeopsIO.inflow as inflow  # interface to retrieve inflow profiles
 import padeopsIO.turbineArray as turbineArray  # reads in a turbine array similar to turbineMod.F90
 from padeopsIO.io_utils import structure_to_dict, key_search_r
 from padeopsIO.wake_utils import *
+from padeopsIO.nml_utils import parser
 
 class BudgetIO(): 
     """
@@ -95,7 +96,7 @@ class BudgetIO():
 
         if ('padeops' in kwargs) and kwargs['padeops']: 
             try: 
-                self._init_padeops()
+                self._init_padeops(**kwargs)
                 self.associate_padeops = True
 
                 if self.verbose: 
@@ -224,8 +225,16 @@ class BudgetIO():
         """
         Reads the input file (Fortran 90 namelist) associated with the CFD simulation. 
 
-        Dependencies: f90nml, see https://github.com/marshallward/f90nml 
-        # TODO: switch this to using the in-house nml_utils.py
+        
+        Parameters
+        ----------
+        runid : int
+            RunID number to try and match, given inputfiles self.dir_name. 
+            Default: None
+        
+        Returns
+        -------
+        None
         """
         
         if f90nml is None: 
@@ -240,12 +249,12 @@ class BudgetIO():
 
         # try to search all input files '*.dat' for the proper run and match it
         for inputfile in glob.glob(self.dir_name + os.sep + '*.dat'): 
-            input_nml = f90nml.read(inputfile) 
+            input_nml = parser(inputfile)
             if self.verbose: 
                 print('\t_read_inputfile(): trying inputfile', inputfile)
 
             try: 
-                tmp_runid = input_nml['IO']['runid']
+                tmp_runid = input_nml['io']['runid']
             except KeyError as e: 
                 if self.verbose: 
                     print('\t_read_inputfile(): no runid for', inputfile)
@@ -264,14 +273,13 @@ class BudgetIO():
                 print("\t_read_inputfile(): WARNING - no keyword `runid` given to init.")
 
         # if there are still no input files found, we've got a problem 
-        # TODO: trim dir_name() to remove trailing spaces
         
         warnings.warn('_read_inputfile(): No match to given `runid`, picking the first inputfile to read.')
         
         if self.verbose: 
             print("\t_read_inputfile(): Reading namelist file from {}".format(inputfile_ls[0]))
             
-        self.input_nml = f90nml.read(inputfile_ls[0])
+        self.input_nml = parser(inputfile_ls[0])
         self._convenience_variables()  # make some variables in the metadata more accessible
         self.associate_nml = True  # successfully loaded input file
 
