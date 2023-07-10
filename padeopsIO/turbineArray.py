@@ -85,7 +85,6 @@ class TurbineArray():
             if i >= self.num_turbines: 
                 break  # only read in up to num_turbines turbines
                 
-            turb_nml = parser(os.path.join(turb_dir, filename))
             self.array.append(turb_nml)
             self.turbines.append(Turbine(turb_nml, verbose=self.verbose, n=i+1, sort=self._sort_by))
             
