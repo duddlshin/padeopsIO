@@ -3,6 +3,9 @@ Implementation of the yaw-thrust actuator disk model as described in 'Modelling
 the induction, thrust and power of a yaw-misaligned actuator disk' Heck et al.
 2023.
 
+Recommendation: Delete this file and rely instead on the MITWake repository: 
+https://github.com/Howland-Lab/MITWake
+
 Jaime Liew 2023
 Modified Kirby Heck 2023
 """
@@ -188,7 +191,7 @@ class MITWake:
         """
         Solves the normalized far-wake diameter (between C1 and C2)
         """
-        return 1 + self.kw * np.log(1 + np.exp(2 * x / self.D - 1))
+        return 1 + self.kw * np.log(1 + np.exp(2 * (x / self.D - 1)))
 
     def _du(self, x):
         """
