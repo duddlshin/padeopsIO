@@ -1,6 +1,14 @@
 import re
 
-def parser(filename): 
+
+def read(*args, **kwargs): 
+    """
+    Alias for parser. See parser()
+    """
+    return parser(*args, **kwargs)
+
+
+def parser(filename, to_lowercase=True): 
     """
     Parses a namelist into nested dictionaries. Each key to the returned dictionary 
     is the name of a namelist in `filename`, and the value of that key is itself a 
@@ -10,6 +18,8 @@ def parser(filename):
     ----------
     filename : path
         Path to a namelist text file
+    to_lowercase : bool
+        Casts keys to lowercase if True. Default True. 
 
     Returns
     -------
@@ -18,7 +28,7 @@ def parser(filename):
 
     Namelists = {}
     Namelist = {}  # active namelist
-    Active = None
+    active = None
     with open(filename, 'r') as f: 
         lines = f.readlines()
         
@@ -26,7 +36,9 @@ def parser(filename):
         for line in lines: 
             res = re.search('&(\S+)', line)  # namelists start with "&"
             if res is not None:  # starting new namelist
-                Active = res.group(1)  # save string in active list
+                active = res.group(1)  # save string in active list
+                if to_lowercase: 
+                    active = active.lower()
                 continue
             
             # within a namelist now; search `variable` = `value`
@@ -34,8 +46,10 @@ def parser(filename):
             if res is not None: 
                 # found variable/value pairing
                 key = res.group(1)
+                if to_lowercase: 
+                    key = key.lower()
+                    
                 value = cast_str_to_X(res.group(2))
-                # TODO: Handle boolean variables too? 
 
                 Namelist[key] = value
                 continue
@@ -43,10 +57,10 @@ def parser(filename):
             res = re.search(r'/', line)
             if res is not None: 
                 # Found end of Namelist
-                if Active is not None: 
-                    Namelists[Active] = Namelist.copy()
+                if active is not None: 
+                    Namelists[active] = Namelist.copy()
                     Namelist = {}
-                    Active = None  # terminate namelist, start a new one
+                    active = None  # terminate namelist, start a new one
 
     return Namelists
 
@@ -108,9 +122,16 @@ def cast_str_to_X(value):
     except ValueError: 
         pass
 
-    # TODO: add boolean 
-
-    return value  # returns original value
+    if value.lower() == '.true.': 
+        return True
+    elif value.lower() == '.false.': 
+        return False
+    
+    char_delimiter = value[0]  # probably, this is a quotation mark "
+    if value[-1] == char_delimiter: 
+        return value[1:-1]  # returns original value, sans quotes
+    
+    return value  # hopefully we don't get here
     
 
 def cast_to_str(value): 
@@ -128,9 +149,8 @@ def cast_to_str(value):
         String representation of the value. 
         For example: 
             int(5)      ->  '5'
-            'abc'       ->  'abc'
+            'abc'       ->  '"abc"'
             float(5)    ->  '5.00000000e+00'  (single precision)
-            # TODO: add booleans: 
             bool(True)  ->  '.true.'
     """
 
@@ -138,10 +158,13 @@ def cast_to_str(value):
     # to be parsed as floats, not integers. 
     if type(value) == int: 
         return str(value)
+    
+    if type(value) == bool: 
+        return f'.{str(value).lower()}.'
 
     try: 
         tmp = float(value)
         return '{:.08e}'.format(tmp)
     except ValueError: 
-        return value  # return the original string 
+        return f'"value"'  # return the original string, in double quotes
 
