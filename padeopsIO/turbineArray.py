@@ -1,24 +1,24 @@
-import numpy as np
 import os
-import re
 import warnings
-import glob
 
-try: 
-    import f90nml
-except ImportError: 
-    warnings.warn("Could not find package f90nml in system path. ")
-    # TODO - handle this somehow
-    f90nml = None
+# try: 
+#     import f90nml
+# except ImportError: 
+#     warnings.warn("Could not find package f90nml in system path. ")
+#     # TODO - handle this somehow
+#     f90nml = None
 
 from padeopsIO.turbine import Turbine
+from padeopsIO.nml_utils import parser
     
 class TurbineArray(): 
     """
     # TODO fix class docstring
     """
     
-    def __init__(self, turb_dir=None, num_turbines=None, init_dict=None, ADM_type=None, verbose=False, sort='xloc'): 
+    def __init__(self, turb_dir=None, num_turbines=None, 
+                 init_ls=[], init_dict=None, 
+                 ADM_type=None, verbose=False, sort='xloc'): 
         """
         Constructor function for a TurbineArray class
         
@@ -36,47 +36,52 @@ class TurbineArray():
         """
 
         # this initializes from a dictionary output by todict()
+        self.verbose = verbose
+        self._sort_by = sort
         if init_dict is not None: 
             self.fromdict(init_dict)
 
-            self.verbose = verbose
             if self.verbose: 
                 print("TurbineArray: Initialized from", turb_dir)
-
             return
         
         self.turb_dir = turb_dir
-        self.verbose = verbose
-        self._sort_by = sort
-        
-        # begin reading in turbines
-        filenames = os.listdir(turb_dir)
-        filenames.sort()  # sort these into ascending order
-        
+                
+        if turb_dir is not None: 
+            # glean namelist inputs from the turbine directory
+
+            if len(init_ls) == 0: 
+                # begin reading in turbines
+                filenames = os.listdir(turb_dir)
+                filenames.sort()  # sort these into ascending order
+                if self.verbose: 
+                    print("Reading turbines from the following files:\n", filenames)
+
+                for i, filename in enumerate(filenames): 
+                    turb_nml = parser(os.path.join(turb_dir, filename))
+                    init_ls.append(turb_nml)
+            elif self.verbose: 
+                print('__init__(): `turb_dir` superceded by `init_ls` kwarg.')
+
         if num_turbines is not None: 
             self.num_turbines = num_turbines
             
-            if num_turbines != len(filenames):  
+            if num_turbines != len(init_ls):  
                 warnings.warn("Not all turbines in the specified directory will be used")
 
                 if self.verbose: 
-                    print("\tRequested {:d} turbines, but found {:d} files.".format(num_turbines, len(filenames)))
+                    print("\tRequested {:d} turbines, but found {:d} files.".format(num_turbines, len(init_ls)))
         else: 
-            self.num_turbines = len(filenames)
+            self.num_turbines = len(init_ls)
             
-        
         # for now, each turbine can simply be a dictionary appended to a list
         self.array = []  # array is deprecated (06/01/2023)
         self.turbines = []
-        
-        if self.verbose: 
-            print("Reading turbines from the following files:\n", filenames)
-            
-        for i, filename in enumerate(filenames): 
+
+        for i, turb_nml in enumerate(init_ls): 
             if i >= self.num_turbines: 
                 break  # only read in up to num_turbines turbines
                 
-            turb_nml = f90nml.read(os.path.join(turb_dir, filename))
             self.array.append(turb_nml)
             self.turbines.append(Turbine(turb_nml, verbose=self.verbose, n=i+1, sort=self._sort_by))
             
@@ -90,11 +95,9 @@ class TurbineArray():
             # make the variables more accessible
             if self.verbose: 
                 print("\tAdding convenience variables...")
-                
-            self.turbine = self.turbines[0]
-            
-            for key in self.turbine.input_nml['actuator_disk'].keys(): 
-                self.__dict__[key] = self.turbine.input_nml['actuator_disk'][key]
+
+            for key in self.turbines[0].input_nml['actuator_disk'].keys(): 
+                self.__dict__[key] = self.turbines[0].input_nml['actuator_disk'][key]
         
         if self.verbose: 
             print("TurbineArray: Initialized from", turb_dir)
@@ -143,8 +146,10 @@ class TurbineArray():
         """
         Converts self.__dict__ into a dictionary with no namelists. 
         """
-
-        return self.__dict__.copy()
+        ret = self.__dict__.copy()
+        if 'turbines' in ret.keys(): 
+            ret['turbines'] = [t.input_nml for t in ret['turbines']]  # save input namelists
+        return ret
     
     
     def __str__(self): 

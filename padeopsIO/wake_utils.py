@@ -267,19 +267,23 @@ def get_xids(x=None, y=None, z=None,
              x_ax=None, y_ax=None, z_ax=None, 
              return_none=False, return_slice=False): 
     """
-    Translates x, y, and z limits in the physical domain to indices based on x_ax, y_ax, z_ax
+        Translates x, y, and z limits in the physical domain to indices based on self.xLine, self.yLine, and self.zLine
 
-    Arguments
-    ---------
-    x, y, z : float or iterable (tuple, list, etc.) of physical locations to return the nearest index for
-    return_none : if True, populates output tuple with None if input is None. Default False. 
-    return_slice : if True, returns a tuple of slices instead a tuple of lists. 
+        Parameters
+        ---------
+        x, y, z : float or iterable (tuple, list, etc.) 
+            Physical locations to return the nearest index 
+        return_none : bool
+            If True, populates output tuple with None if input is None. Default False. 
+        return_slice : bool 
+            If True, returns a tuple of slices instead a tuple of lists. Default False. 
 
-    Returns
-    -------
-    xid, yid, zid : list or tuple of lists with indices for the requested x, y, z, args in the order: x, y, z. 
-        If, for example, y and z are requested, then the returned tuple will have (yid, zid) lists. 
-        If only one value (float or int) is passed in for e.g. x, then an integer will be passed back in xid. 
+        Returns
+        -------
+        xid, yid, zid : list or tuple of lists 
+            Indices for the requested x, y, z, args in the order: x, y, z. 
+            If, for example, y and z are requested, then the returned tuple will have (yid, zid) lists. 
+            If only one value (float or int) is passed in for e.g. x, then an integer will be passed back in xid. 
     """
 
     ret = ()

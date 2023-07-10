@@ -1,6 +1,14 @@
 import re
 
-def parser(filename): 
+
+def read(*args, **kwargs): 
+    """
+    Alias for parser. See parser()
+    """
+    return parser(*args, **kwargs)
+
+
+def parser(filename, to_lowercase=True): 
     """
     Parses a namelist into nested dictionaries. Each key to the returned dictionary 
     is the name of a namelist in `filename`, and the value of that key is itself a 
@@ -8,7 +16,10 @@ def parser(filename):
 
     Parameters 
     ----------
-    filename (path-like) : path to a namelist text file
+    filename : path
+        Path to a namelist text file
+    to_lowercase : bool
+        Casts keys to lowercase if True. Default True. 
 
     Returns
     -------
@@ -17,39 +28,39 @@ def parser(filename):
 
     Namelists = {}
     Namelist = {}  # active namelist
-    Active = None
+    active = None
     with open(filename, 'r') as f: 
         lines = f.readlines()
-
+        
+        # loop through lines
         for line in lines: 
-            res = re.search('&(\S+)', line)
-            if res is not None: 
-                # print('Namelist name: ', res.group(1))
-                Active = res.group(1)  # active list
+            res = re.search('&(\S+)', line)  # namelists start with "&"
+            if res is not None:  # starting new namelist
+                active = res.group(1)  # save string in active list
+                if to_lowercase: 
+                    active = active.lower()
                 continue
-
+            
+            # within a namelist now; search `variable` = `value`
             res = re.search('(\S+)\s+=\s+(\S+)', line)
             if res is not None: 
-                # tmp = re.sub('[dD]', 'e', res.group(2))
+                # found variable/value pairing
                 key = res.group(1)
+                if to_lowercase: 
+                    key = key.lower()
+                    
                 value = cast_str_to_X(res.group(2))
-                # try: 
-                #     value = float(tmp)
-                # except ValueError as e: 
-                #     value = res.group(2)
-                # TODO: Handle boolean variables too
 
-                # print(key, value)
                 Namelist[key] = value
                 continue
 
             res = re.search(r'/', line)
             if res is not None: 
-                # print('Found end of Namelist')
-                if Active is not None: 
-                    Namelists[Active] = Namelist.copy()
+                # Found end of Namelist
+                if active is not None: 
+                    Namelists[active] = Namelist.copy()
                     Namelist = {}
-                    Active = None
+                    active = None  # terminate namelist, start a new one
 
     return Namelists
 
@@ -57,34 +68,43 @@ def writer(filepath, Namelists):
     """
     Writes a namelist formatted in the same way that is output by nml_parser()
 
+    Parameters
+    ----------
+    filepath : path
+        Path where the namelist will be written
+    Namelists : Nested dict from parser()
+
+    Returns
+    -------
+    None
     """
-    with open(filepath, 'w') as f: 
+    with open(filepath, 'w') as f:  # begin writing a file
         for key in Namelists.keys(): 
+            # write header
             f.write('&' + key + '\n')
+            # loop thru variables
             for var in Namelists[key].keys(): 
                 tmp = Namelists[key][var]
                 value = cast_to_str(tmp)
+                # write variable/value combinations
                 f.write('{:''<24} = {:s}\n'.format(var, value))
             f.write('/\n')
 
 
-def isfloat(value): 
-    """
-    Checks if the input can be cast into a float. 
-    https://www.programiz.com/python-programming/examples/check-string-number
-
-    Deprecated 06/07/2023
-    """
-    try: 
-        float(value)
-        return True
-    except ValueError: 
-        return False
-
-
 def cast_str_to_X(value): 
     """
-    Tries to cast the input value to an integer, then a float. If both, then returns the original string. 
+    Tries to cast the input value to an integer, then a float. 
+    If all fail, then returns the original string. 
+
+    Parameters
+    ----------
+    value : str
+        Value read in by the parser as a string
+    
+    Returns
+    -------
+    value : str or int or float
+        Cast value
     """
 
     # try integer casting: 
@@ -100,22 +120,51 @@ def cast_str_to_X(value):
         tmp2 = float(tmp1)
         return tmp2
     except ValueError: 
-        return value  # returns original value
+        pass
+
+    if value.lower() == '.true.': 
+        return True
+    elif value.lower() == '.false.': 
+        return False
+    
+    char_delimiter = value[0]  # probably, this is a quotation mark "
+    if value[-1] == char_delimiter: 
+        return value[1:-1]  # returns original value, sans quotes
+    
+    return value  # hopefully we don't get here
     
 
 def cast_to_str(value): 
     """
     Takes a value of unknown type (value) and casts to a fortran namelist-readable string. 
+
+    Parameters
+    ----------
+    value : str or float or int
+        Variable value to write into the namelist
+    
+    Returns
+    -------
+    ret : str
+        String representation of the value. 
+        For example: 
+            int(5)      ->  '5'
+            'abc'       ->  '"abc"'
+            float(5)    ->  '5.00000000e+00'  (single precision)
+            bool(True)  ->  '.true.'
     """
 
     # note: this is NOT a try/except statement because we want floats (that are also integers)
     # to be parsed as floats, not integers. 
     if type(value) == int: 
         return str(value)
+    
+    if type(value) == bool: 
+        return f'.{str(value).lower()}.'
 
     try: 
         tmp = float(value)
         return '{:.08e}'.format(tmp)
     except ValueError: 
-        return value  # return the original string 
+        return f'"value"'  # return the original string, in double quotes
 
