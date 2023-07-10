@@ -319,9 +319,13 @@ class BudgetIO():
         if x is not None and y is not None and z is not None: 
             for xi, xname in zip([x, y, z], ['x', 'y', 'z']): 
                 self.__dict__['{:s}Line'.format(xname)] = xi
-                self.__dict__['d{:s}'.format(xname)] = xi[1]-xi[0]
                 self.__dict__['n{:s}'.format(xname)] = len(xi)
                 self.__dict__['L{:s}'.format(xname)] = xi.max() - xi.min()
+                try: 
+                    self.__dict__['d{:s}'.format(xname)] = xi[1]-xi[0]
+                except IndexError:  # 1D along this axis
+                    self.__dict__['d{:s}'.format(xname)] = key_search_r(
+                        self.input_nml, 'd{:s}'.format(xname))
         else: 
             terms_map = {'nx': 'nx', 'ny': 'ny', 'nz': 'nz', 
                         'lx': 'Lx', 'ly': 'Ly', 'lz': 'Lz'}  # search -> keys, name -> values
