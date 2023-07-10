@@ -91,8 +91,8 @@ class TurbineArray():
             if self.verbose: 
                 print("\tAdding convenience variables...")
 
-            for key in self.turbine.input_nml['actuator_disk'].keys(): 
-                self.__dict__[key] = self.turbine.input_nml['actuator_disk'][key]
+            for key in self.turbines[0].input_nml['actuator_disk'].keys(): 
+                self.__dict__[key] = self.turbines[0].input_nml['actuator_disk'][key]
         
         if self.verbose: 
             print("TurbineArray: Initialized from", turb_dir)
