@@ -225,6 +225,7 @@ class BudgetIO():
         Reads the input file (Fortran 90 namelist) associated with the CFD simulation. 
 
         Dependencies: f90nml, see https://github.com/marshallward/f90nml 
+        # TODO: switch this to using the in-house nml_utils.py
         """
         
         if f90nml is None: 
@@ -576,22 +577,20 @@ class BudgetIO():
                   xlim=None, ylim=None, zlim=None): 
         """
         Saves budgets as .mat (MATLAB) files. This is lazy code copied from write_npz(). 
-        
-        Budgets are defined in e.g. PadeOps/src/incompressible/budget_time_avg.F90. See budget_key.py
-        From a high level: 
-            Budget 0: Mean quantities (1st and 2nd order)
-            Budget 1: Momentum budget terms
-            Budget 2: MKE budget terms
-            Budget 3: TKE budget terms
             
-        parameters 
+        Parameters 
         ----------
-        write_dir (str) : location to write .npz files. Default: same directory as self.outputdir_name
-        budget_terms : list of budget terms to be saved (see ._parse_budget_terms()). Alternatively, 
+        write_dir : string
+            location to write .mat files. Default: same directory as self.outputdir_name
+        budget_terms : list
+            budget terms to be saved (see ._parse_budget_terms()). Alternatively, 
             use 'current' to save the budget terms that are currently loaded. 
-        filename (str) : calls self.set_filename()
-        overwrite (bool) : if true, will overwrite existing .npz files. 
-        xlim, ylim, zlim : slice bounds, see BudgetIO.slice()  # TODO: SAVE X,Y,Z information of slices
+        filename : string
+            calls self.set_filename()
+        overwrite : bool
+            if true, will overwrite existing .mat files. 
+        xlim, ylim, zlim : slice bounds
+            see BudgetIO.slice()
         """
         
         if not self.associate_budgets: 
@@ -645,6 +644,13 @@ class BudgetIO():
             save_dict = {key: self.__dict__[key] for key in save_vars}
             for key in ['x', 'y', 'z']: 
                 save_dict[key] = sl[key]  # copy over x,y,z from slice
+            
+            if self.associate_turbines: 
+                save_dict['turbineArray'] = self.turbineArray.todict()
+                for k in range(self.turbineArray.num_turbines): 
+                    # write turbine information
+                    save_dict['t{:d}_power'.format(k+1)] = self.read_turb_power(tidx='all', steady=False, n=k+1)
+                    save_dict['t{:d}_uvel'.format(k+1)] = self.read_turb_uvel(tidx='all', steady=False, n=k+1)
                 
             filepath_meta = os.path.join(write_dir, self.filename + '_metadata.mat')
             savemat(filepath_meta, save_dict)
@@ -1136,9 +1142,6 @@ class BudgetIO():
 
 
     def get_xids(self, **kwargs): 
-        #          x=None, y=None, z=None, 
-        #          x_ax=None, y_ax=None, z_ax=None, 
-        #          return_none=False, return_slice=False): 
         """
         Translates x, y, and z limits in the physical domain to indices based on self.xLine, self.yLine, and self.zLine
 
