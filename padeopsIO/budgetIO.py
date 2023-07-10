@@ -1603,11 +1603,18 @@ class BudgetIO():
             return ret  # this is an array
         
         
-    def read_turb_property(self, tidx, prop_str, **kwargs): 
+    def read_turb_property(self, tidx, prop_str, turb=1, **kwargs): 
         """
         Helper function to read turbine power, uvel, vvel. Calls self._read_turb_file() 
         for every time ID in tidx. 
         """
+        
+        if self.associate_mat: 
+            # try to read turbine power from the metadata file, may throw KeyError
+            fname = self.dir_name + os.sep + self.filename + '_metadata.mat'
+            ret = loadmat(fname) 
+            return np.squeeze(ret[f't{turb}_{prop_str}'])
+        
         prop_time = []  # power array to return
 
         if tidx is None: 
@@ -1616,7 +1623,7 @@ class BudgetIO():
             tidx = self.unique_tidx()
         
         for tid in tidx:  # loop through time IDs and call helper function
-            prop = self._read_turb_file(prop_str, tid=tid, **kwargs)
+            prop = self._read_turb_file(prop_str, tid=tid, turb=turb, **kwargs)
             if type(prop) == np.float64:  # if returned is not an array, cast to an array
                 prop = np.array([prop])
             prop_time.append(prop)
@@ -1633,8 +1640,8 @@ class BudgetIO():
         """
         Reads the turbine power files output by LES in Actuator Disk type 2 and type 5. 
         
-        Arguments
-        ---------
+        Parameters
+        ----------
         tidx (iterable) : list or array of time IDs to load data. Default: self.last_tidx. 
             If tidx = 'all', then this calls self.unique_tidx()
         **kwargs() : see self._read_turb_file()
