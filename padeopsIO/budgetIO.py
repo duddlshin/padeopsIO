@@ -649,8 +649,8 @@ class BudgetIO():
                 save_dict['turbineArray'] = self.turbineArray.todict()
                 for k in range(self.turbineArray.num_turbines): 
                     # write turbine information
-                    save_dict['t{:d}_power'.format(k+1)] = self.read_turb_power(tidx='all', steady=False, n=k+1)
-                    save_dict['t{:d}_uvel'.format(k+1)] = self.read_turb_uvel(tidx='all', steady=False, n=k+1)
+                    save_dict['t{:d}_power'.format(k+1)] = self.read_turb_power(tidx='all', steady=False, turb=k+1)
+                    save_dict['t{:d}_uvel'.format(k+1)] = self.read_turb_uvel(tidx='all', steady=False, turb=k+1)
                 
             filepath_meta = os.path.join(write_dir, self.filename + '_metadata.mat')
             savemat(filepath_meta, save_dict)
