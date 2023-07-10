@@ -90,7 +90,6 @@ class BudgetIO():
         self.associate_fields = False 
         self.associate_budgets = False
         self.associate_grid = False
-        self.associate_field = False
         self.associate_turbines = False
         self.normalized_xyz = False
 
@@ -326,6 +325,7 @@ class BudgetIO():
         # build domain: 
         if x is not None and y is not None and z is not None: 
             for xi, xname in zip([x, y, z], ['x', 'y', 'z']): 
+                xi = np.atleast_1d(xi)  # expand to at least 1D
                 self.__dict__[f'{xname}Line'] = xi
                 self.__dict__[f'L{xname}'] = xi.max() - xi.min()
                 try: 
@@ -350,23 +350,23 @@ class BudgetIO():
             self.zLine = np.linspace(self.dz/2,self.Lz-(self.dz/2),self.nz)
 
         self.associate_grid = True
-
-        if self.associate_turbines: 
-            if self.turbineArray.num_turbines == 1: 
-                if self.verbose: 
-                    print('_load_grid: attempting to normalize the origin to the turbine')
+        # TODO: formalize this in a better way, preferably in its own function
+        # if self.associate_turbines: 
+        #     if self.turbineArray.num_turbines == 1: 
+        #         if self.verbose: 
+        #             print('_load_grid: attempting to normalize the origin to the turbine')
                     
-                if 'normalize_origin' in kwargs and not kwargs['normalize_origin']: 
-                    print("One turbine found, but keeping domain coordinates")
+        #         if 'normalize_origin' in kwargs and not kwargs['normalize_origin']: 
+        #             print("One turbine found, but keeping domain coordinates")
                     
-                else: 
-                    if self.verbose: 
-                        print("Reading 1 turbine, normalizing origin. To turn off, initialize with `normalize_origin=False`")
-                    self.xLine -= self.turbineArray.xloc
-                    self.yLine -= self.turbineArray.yloc
-                    self.zLine -= self.turbineArray.zloc
+        #         else: 
+        #             if self.verbose: 
+        #                 print("Reading 1 turbine, normalizing origin. To turn off, initialize with `normalize_origin=False`")
+        #             self.xLine -= self.turbineArray.xloc
+        #             self.yLine -= self.turbineArray.yloc
+        #             self.zLine -= self.turbineArray.zloc
                     
-                    self.normalized_xyz = True
+        #             self.normalized_xyz = True
 
 
     def _init_npz(self, **kwargs): 
@@ -444,12 +444,10 @@ class BudgetIO():
             self.budget_tidx = None  
             self.last_n = None  # all these are missing in .mat files 07/03/2023
 
-        # attempt to load turbine file - need this before loading grid
-        # but turbines probably were not saved to the .mat file
-        if 'auxiliary' in self.input_nml.keys() and 'turbineArray' in self.input_nml['auxiliary']: 
-            self.turbineArray = turbineArray.TurbineArray(
-                init_dict=self.input_nml['auxiliary']['turbineArray']
-                )
+        if 'turbineArray' in ret.keys(): 
+            init_dict = structure_to_dict(ret['turbineArray'])
+            init_ls = [structure_to_dict(t) for t in init_dict['turbines']]
+            self.turbineArray = turbineArray.TurbineArray(init_ls=init_ls)
             self.associate_turbines = True
 
         # set convenience variables: 
@@ -725,9 +723,7 @@ class BudgetIO():
             fname = self.dir_name + '/Run{:02d}_{:s}_t{:06d}.out'.format(self.runid, dict_match[term], tidx)
             tmp = np.fromfile(fname, dtype=np.dtype(np.float64), count=-1)
             self.field[term] = tmp.reshape((self.nx,self.ny,self.nz), order='F')  # reshape into a 3D array
-            
-        self.associate_field = True
-            
+                    
         print('BudgetIO loaded fields {:s} at time: {:.06f}'.format(str(list(terms)), self.time))
         
         
@@ -1064,7 +1060,6 @@ class BudgetIO():
             read fields from read_fields(). 
         sl : slice from self.slice()
             dictionary of fields to be sliced into again. 
-            TODO: Fix slicing into 1D or 2D slices. 
         keys : list 
             fields in slice `sl`. Keys to slice into from the input slice `sl`
         tidx : int
@@ -1098,51 +1093,48 @@ class BudgetIO():
             yLine = sl['y']
             zLine = sl['z']
 
-        slices = {}  # build from empty dict
+        slices = {'keys': []}  # build from empty dict
+        preslice = {}
 
         if field_terms is not None: 
             # read fields
             self.read_fields(field_terms=field_terms, tidx=tidx)
             field = self.field
 
-        if field is not None: 
-            # slice the given field
-            
+        # parse what field arrays to slice into
+        if field is not None:             
             if type(field) == dict: 
                 # iterate through dictionary of fields
                 if keys is None: 
                     keys = field.keys()
-                for key in keys: 
-                    slices[key] = np.squeeze(field[key][xid, yid, zid])
-                slices['keys'] = keys
+                preslice = field
             else: 
-                slices['field'] = np.squeeze(field[xid, yid, zid])
+                preslice = {'field': field}
 
         elif budget_terms is not None: 
             # read budgets
-            key_subset = self._parse_budget_terms(budget_terms)
-            self.read_budgets(budget_terms=key_subset, tidx=tidx, overwrite=overwrite)
+            keys = self._parse_budget_terms(budget_terms)
+            self.read_budgets(budget_terms=keys, tidx=tidx, overwrite=overwrite)
+            preslice = self.budget
 
-            for term in key_subset: 
-                slices[term] = np.squeeze(self.budget[term][xid, yid, zid])  
-            slices['keys'] = list(key_subset.keys())  # save the terms 
-
-        elif keys is not None and sl is not None: 
-            # slice into slices
-            if type(keys) == list: 
-                for key in keys: 
-                    slices[key] = np.squeeze(sl[key][xid, yid, zid])
-                slices['keys'] = keys
-
-            else: 
-                # TODO: Fix slicing into 2D slices. This is a known bug
-                slices[key] = np.squeeze(sl[xid, yid, zid])
-                slices['keys'] = [key]
+        elif sl is not None: 
+            preslice = sl
+            # parse keys: 
+            if keys is None: 
+                keys = sl['keys']
+            elif type(keys) != list: 
+                keys = [keys]
                 
         else: 
             warnings.warn("BudgetIO.slice(): either budget_terms= or field= must be initialized.")
             return None
         
+        # slice into arrays; now accommodates 3D arrays
+        dims = (len(xLine), len(yLine), len(zLine))
+        for key in keys: 
+            slices[key] = np.squeeze(np.reshape(preslice[key], dims)[xid, yid, zid])
+            slices['keys'].append(key)
+
         # also save domain information
         slices['x'] = xLine[xid]
         slices['y'] = yLine[yid]
@@ -1166,15 +1158,19 @@ class BudgetIO():
         """
         Translates x, y, and z limits in the physical domain to indices based on self.xLine, self.yLine, and self.zLine
 
-        Arguments
+        Parameters
         ---------
-        x, y, z : float or iterable (tuple, list, etc.) of physical locations to return the nearest index for
-        return_none : if True, populates output tuple with None if input is None. Default False. 
-        return_slice : if True, returns a tuple of slices instead a tuple of lists. 
+        x, y, z : float or iterable (tuple, list, etc.) 
+            Physical locations to return the nearest index 
+        return_none : bool
+            If True, populates output tuple with None if input is None. Default False. 
+        return_slice : bool 
+            If True, returns a tuple of slices instead a tuple of lists. Default False. 
 
         Returns
         -------
-        xid, yid, zid : list or tuple of lists with indices for the requested x, y, z, args in the order: x, y, z. 
+        xid, yid, zid : list or tuple of lists 
+            Indices for the requested x, y, z, args in the order: x, y, z. 
             If, for example, y and z are requested, then the returned tuple will have (yid, zid) lists. 
             If only one value (float or int) is passed in for e.g. x, then an integer will be passed back in xid. 
         """
