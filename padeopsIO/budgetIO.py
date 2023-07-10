@@ -318,15 +318,14 @@ class BudgetIO():
         # build domain: 
         if x is not None and y is not None and z is not None: 
             for xi, xname in zip([x, y, z], ['x', 'y', 'z']): 
-                self.__dict__['{:s}Line'.format(xname)] = xi
-                self.__dict__['L{:s}'.format(xname)] = xi.max() - xi.min()
+                self.__dict__[f'{xname}Line'] = xi
+                self.__dict__[f'L{xname}'] = xi.max() - xi.min()
                 try: 
-                    self.__dict__['d{:s}'.format(xname)] = xi[1]-xi[0]
-                    self.__dict__['n{:s}'.format(xname)] = len(xi)
+                    self.__dict__[f'd{xname}'] = xi[1]-xi[0]
+                    self.__dict__[f'n{xname}'] = len(xi)
                 except IndexError:  # 1D along this axis
-                    self.__dict__['d{:s}'.format(xname)] = key_search_r(
-                        self.input_nml, 'd{:s}'.format(xname))
-                    self.__dict__['n{:s}'.format(xname)] = 1
+                    self.__dict__[f'd{xname}'] = None  # does not make sense to have dxi 
+                    self.__dict__[f'n{xname}'] = 1
         else: 
             terms_map = {'nx': 'nx', 'ny': 'ny', 'nz': 'nz', 
                         'lx': 'Lx', 'ly': 'Ly', 'lz': 'Lz'}  # search -> keys, name -> values
@@ -407,7 +406,7 @@ class BudgetIO():
 
 
 
-    def _init_mat(self, **kwargs): 
+    def _init_mat(self): 
         """
         Initializes the BudgetIO object by attempting to read .npz files saved from a previous
         BudgetIO object from write_mat(). 
@@ -511,14 +510,14 @@ class BudgetIO():
         sl = self.slice(budget_terms=key_subset, xlim=xlim, ylim=ylim, zlim=zlim)
 
         # if `filename` is provided, change this in the object
-        # importantly, this needs to be done AFTER reading budgets! 
+        # importantly, this needs to be done AFTER reading budgets
         if filename is not None: 
             self.set_filename(filename)
 
         filepath = write_dir + os.sep + self.filename_budgets + '.npz'
         
         # don't unintentionally overwrite files... 
-        write_arrs = False  # this variable doesn't actually do anything
+        write_arrs = False 
         if not os.path.exists(filepath): 
             write_arrs = True
 
@@ -606,11 +605,8 @@ class BudgetIO():
         if write_dir is None: 
             write_dir = self.dir_name
         
-        if budget_terms=='current': 
-            key_subset = self.budget.keys()
-
-        else: 
-            key_subset = self._parse_budget_terms(budget_terms)
+        # load budgets
+        key_subset = self._parse_budget_terms(budget_terms)
 
         # load budgets
         sl = self.slice(budget_terms=key_subset, xlim=xlim, ylim=ylim, zlim=zlim)
@@ -897,6 +893,9 @@ class BudgetIO():
             budget_terms = ['ubar', 'vbar', 'wbar', 
                             'tau11', 'tau12', 'tau13', 'tau22', 'tau23', 'tau33', 
                             'pbar']
+            
+        elif budget_terms=='current': 
+            budget_terms = list(self.budget.keys())
 
         elif budget_terms=='all': 
             budget_terms = self.existing_terms(include_wakes=include_wakes)
@@ -1047,26 +1046,35 @@ class BudgetIO():
         """
         Returns a slice of the requested budget term(s) as a dictionary. 
 
-        Arguments
-        ---------
-        budget_terms (list or string) : budget term or terms to slice from. If None, expects a value for `field`
-        field (arraylike or dict of arraylike) : fields similar to self.budget[]
+        Parameters
+        ----------
+        budget_terms : list or string
+            budget term or terms to slice from. If None, expects a value for `field` or `sl`
+        field : array-like or dict of arraylike
+            fields similar to self.field[] or self.budget[]
         field_terms: list
             read fields from read_fields(). 
-        sl (slice from self.slice()) : dictionary of fields to be sliced into again. 
+        sl : slice from self.slice()
+            dictionary of fields to be sliced into again. 
             TODO: Fix slicing into 1D or 2D slices. 
-        keys (fields in slice `sl`) : keys to slice into from the input slice `sl`
-        tidx (int) : time ID to read budgets from, see read_budgets(). Default None
-        xlim, ylim, zlim (tuple) : in physical domain coordinates, the slice limits. If an integer is given, then the 
-            dimension of the slice will be reduced by one. If None is given (default), then the entire domain extent is sliced. 
-        overwrite (bool) : Overwrites loaded budgets, see read_budgets(). Default False
-        round_extent (bool) : Rounds extents to the nearest integer. Default False
+        keys : list 
+            fields in slice `sl`. Keys to slice into from the input slice `sl`
+        tidx : int
+            time ID to read budgets from, see read_budgets(). Default None
+        xlim, ylim, zlim : tuple
+            in physical domain coordinates, the slice limits. If an integer is given, 
+            then the dimension of the slice will be reduced by one. If None is given 
+            (default), then the entire domain extent is sliced. 
+        overwrite : bool
+            Overwrites loaded budgets, see read_budgets(). Default False
+        round_extent : bool
+            Rounds extents to the nearest integer. Default False
         
         Returns
         -------
-        slices (dict) : dictionary organized with all of the sliced fields, keyed by the budget name, and additional keys for
-            the slice domain 'x', 'y', and 'z'
-        
+        slices : dict
+            dictionary organized with all of the sliced fields, keyed by the budget name, 
+            and additional keys for the slice domain 'x', 'y', 'z', and 'extent'
         """
 
         if sl is None: 
@@ -1181,9 +1189,15 @@ class BudgetIO():
         """
         Pulls all the unique tidx values from a directory. 
         
-        Arguments
-        ---------
-        return_last (bool) : If True, returns only the largest value of TIDX. Default False. 
+        Parameters 
+        ----------
+        return_last : bool
+            If True, returns only the largest value of TIDX. Default False. 
+
+        Returns
+        -------
+        t_list : array
+            List of unique time IDs (TIDX)
         """
 
         if not self.associate_padeops:
@@ -1210,8 +1224,14 @@ class BudgetIO():
         
         Parameters
         ----------
-        return_last (bool) : If False, returns only the largest TIDX associated with budgets. 
-            Else, returns an entire list of unique tidx associated with budgets. Default True
+        return_last : bool
+            If False, returns only the largest TIDX associated with budgets. Else, 
+            returns an entire list of unique tidx associated with budgets. Default True
+
+        Returns
+        -------
+        t_list : array
+            List of unique budget time IDs (TIDX)
         """
 
         # TODO: fix for .npz
@@ -1238,11 +1258,16 @@ class BudgetIO():
         """
         Reads the .out file of each unique time and returns an array of [physical] times corresponding
         to the time IDs from unique_tidx(). 
-        
+
+        Parameters 
+        ----------
+        return_last : bool
+            If True, returns only the largest time. Default False. 
+
         Returns
         -------
-        times (arr) : list of times associated with each time ID in unique_tidx()
-        return_false (bool) : if True, only returns the final element in the array. Default: False
+        times : array
+            list of times associated with each time ID in unique_tidx()
         """
         
         times = []; 
