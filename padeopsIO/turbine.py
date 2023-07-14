@@ -88,6 +88,9 @@ class Turbine():
         # turbine number; not included in the input file 
         self.n = n
         
+        # set position
+        self.pos = (self.xloc, self.yloc, self.zloc)
+        
     
     def set_sort(self, sort): 
         if sort in self.__dict__: 
