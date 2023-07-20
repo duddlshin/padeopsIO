@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-# Copyright Hannah Johlas, 2019
+# Hannah Johlas, 2019
 # Revised Kirby Heck, 2023
 
 import matplotlib

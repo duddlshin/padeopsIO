@@ -561,7 +561,8 @@ def fit_linear(x, y):
 # ================= Fluid tensor functions ===================
     
 
-def compute_duidxj(sl_dict, save_ui=True, in_place=True): 
+def compute_duidxj(sl_dict, ui=None, 
+                   save_ui=True, in_place=True): 
     """
     Computes partial derivatives in x, y, and z for keys 'ubar', 'vbar', 'wbar'. Assumes the the
     slice is 3D. 
@@ -570,7 +571,9 @@ def compute_duidxj(sl_dict, save_ui=True, in_place=True):
     ----------
     sl_dict : dict
         dictionary from BudgetIO.slice()
-    in_place : optional, bool
+    ui : (Nx, Ny, Nz, 3)
+        4D velocity tensor (could be, e.g. velocity deficits)
+    in_place : bool, optional
         If False, returns the computed quantities instead of appending them in the same dictionary. 
         Default True
     
