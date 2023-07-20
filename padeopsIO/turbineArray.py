@@ -1,13 +1,6 @@
 import os
 import warnings
 
-# try: 
-#     import f90nml
-# except ImportError: 
-#     warnings.warn("Could not find package f90nml in system path. ")
-#     # TODO - handle this somehow
-#     f90nml = None
-
 from padeopsIO.turbine import Turbine
 from padeopsIO.nml_utils import parser
     
@@ -108,6 +101,10 @@ class TurbineArray():
         Sorts the `turbines` property according to self._sort_by. 
         
         NOTE: This does not rearrange the `array` property, which is deprecated. 
+
+        Parameters
+        ----------
+        reverse : bool, optional
         """
         self.turbines.sort(reverse=reverse)
         
@@ -117,6 +114,18 @@ class TurbineArray():
         Sets the sorting field for all turbines in the array. 
         
         Sorts the array if sort=True (default True)
+
+        Parameters
+        ----------
+        sort_by : string
+            Turbine variable to sort array by
+        sort : bool
+            calls self.sort() if true
+        reverse : bool
+
+        Returns
+        -------
+        None
         """
         
         for turbine in self.turbines: 
@@ -128,9 +137,7 @@ class TurbineArray():
         
         
     def __iter__(self): 
-        """
-        Iterates through the turbine list. 
-        """
+        """Returns an iterator for the turbine list."""
         return self.turbines.__iter__()
         
     
@@ -153,11 +160,8 @@ class TurbineArray():
     
     
     def __str__(self): 
-        """
-        Overrides the default object print statement. 
-        """
+        """Overrides the default object print statement."""
         return "Turbine array object at {:s} with {:d} turbines".format(self.turb_dir, self.num_turbines)
-        
         
 
 if __name__ == "__main__": 

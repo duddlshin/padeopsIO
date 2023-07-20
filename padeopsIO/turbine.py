@@ -93,6 +93,9 @@ class Turbine():
         
     
     def set_sort(self, sort): 
+        """
+        Sets the sorting variable to string `sort`
+        """
         if sort in self.__dict__: 
             self.sort_by = sort
         else: 
@@ -105,7 +108,8 @@ class Turbine():
         
         Parameters
         ----------
-        return_correction (bool) : Optional, returns correction factor if True. Default: False
+        return_correction : bool, optional
+            Returns correction factor if True. Default: False
         """
         fwidth = key_search_r(self.input_nml, 'filterwidth')
         use_corr = key_search_r(self.input_nml, 'usecorrection')
@@ -161,16 +165,23 @@ class Turbine():
         
         Parameters
         ----------
-        xLine, yLine, zLine (array-like) : 1D arrays of coordinate axes
-        ADM_type (int) : integer for the ADM type, consistent with igrid in PadeOps. 
+        xLine, yLine, zLine : array
+            1D arrays of coordinate axes
+        ADM_type : int
+            integer for the ADM type, consistent with igrid in PadeOps. 
             Default is 5 (Shapiro, et al. (2019))
-        fwidth (float) : filter width (smoothing kernel factor)
-        buff_fact (float) : grid partition factor 
-        return_kernel (bool) : returns the 3D forcing kernel if True. Default: False
+        fwidth : float
+            filter width (smoothing kernel factor)
+        buff_fact : float
+            grid partition factor 
+        return_kernel : bool
+            returns the 3D forcing kernel if True. 
+            Default False, saves array to self.kernel
             
         Returns
         -------
-        kernel (nx * ny * nz) : forcing kernel, only if return_kernel=True
+        array (Nx, Ny, Nz)
+            forcing kernel, only if return_kernel=True
         """
         
         if self.kernel is not None and not overwrite: 
@@ -237,8 +248,8 @@ class Turbine():
     
     def _get_ctrl_pts(self, x, y, z): 
         """
-        Helper function to the 3D integration of get_kernel for an unyawed, untilted ADM Type 5 (Assumes
-        the disk normal vector is in the x-direction). 
+        Helper function to the 3D integration of get_kernel for an unyawed, 
+        untilted ADM Type 5 (Assumes the disk normal vector is in the x-direction). 
         Control points are centered at the ADM location and spaced equally to the grid spacing. 
         """
         dx = x[1]-x[0]
