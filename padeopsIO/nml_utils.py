@@ -8,6 +8,13 @@ def read(*args, **kwargs):
     return parser(*args, **kwargs)
 
 
+def write(*args, **kwargs): 
+    """
+    Aslias for writer. See writer()
+    """
+    return writer(*args, **kwargs)
+
+
 def parser(filename, to_lowercase=True): 
     """
     Parses a namelist into nested dictionaries. Each key to the returned dictionary 
@@ -166,5 +173,5 @@ def cast_to_str(value):
         tmp = float(value)
         return '{:.08e}'.format(tmp)
     except ValueError: 
-        return f'"value"'  # return the original string, in double quotes
+        return f'"{value}"'  # return the original string, in double quotes
 
