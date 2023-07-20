@@ -5,13 +5,6 @@ import warnings
 import glob
 from scipy.io import savemat, loadmat
 
-try: 
-    import f90nml
-except ImportError: 
-    warnings.warn("Could not find package f90nml in system path. ")
-    # TODO - handle this somehow
-    f90nml = None
-
 import padeopsIO.budgetkey as budgetkey  # defines key pairing
 import padeopsIO.inflow as inflow  # interface to retrieve inflow profiles
 import padeopsIO.turbineArray as turbineArray  # reads in a turbine array similar to turbineMod.F90
@@ -21,30 +14,25 @@ from padeopsIO.nml_utils import parser
 
 class BudgetIO(): 
     """
-    # TODO fix class docstring
+    Class for reading and writing outputfiles to PadeOps. 
     """
 
     key = budgetkey.get_key()
 
     def __init__(self, dir_name, **kwargs): 
         """
-        Class initiator. Creates different instance variables depending on the keyword arguments given. 
+        Creates different instance variables depending on the keyword arguments given. 
         
-        Every instance needs a directory name. If this object is reading information from output files dumped
-        by PadeOps, then this is the directory where those files are stored. This object may also read information
-        from a local subset of saved data.  
+        Every instance needs a directory name. If this object is reading information 
+        from output files dumped by PadeOps, then this is the directory where those 
+        files are stored. This object may also read information from a local subset of 
+        saved data.  
         
+        The BudgetIO class will try to initialize from source files if kwarg 
+        `padeops=True` is given. Alternatively, initialize from .mat files using kwarg
+        `mat=True`. 
         
-        The BudgetIO class will try to initialize from source files if kwarg `padeops=True` is given. 
-        
-        Alternatively, BudgetIO will read source files from PadeOps if the following keyword arguments are given: 
-            runid (int)
-            Lx (int)
-            Ly (int)
-            Lz (int)
-            tidx (int) - optional, default is zero. 
-            
-        If not all of those keyword arguments are present, then the directory name will (attempt to) read from 
+        If those keyword arguments not are present, then the directory name will (attempt to) read from 
         budgets of saved .npz files. 
 
         Regardless of the method of reading budget files, __init__ will initialize the following fields: 
@@ -60,7 +48,7 @@ class BudgetIO():
             last_tidx, last_n, 
         
         """
-        
+
         # print statements? default False
         if 'verbose' in kwargs and kwargs['verbose']: 
             self.verbose = True 
@@ -99,21 +87,22 @@ class BudgetIO():
                 self.associate_padeops = True
 
                 if self.verbose: 
-                    print('Initialized BudgetIO at ' + dir_name + ' from PadeOps source files. ')
+                    print('Initialized BudgetIO at ' + dir_name + ' from PadeOps source files.')
 
             except OSError as err: 
                 print('Attempted to read PadeOps output files, but at least one was missing.')
                 print(err)
                 raise
         
-        # if padeops wasn't specifically requested, try with npz files: 
+        # if padeops wasn't specifically requested, try with .mat files: 
         elif 'mat' in kwargs and kwargs['mat']: 
-            self._init_mat()
+            self._init_mat(**kwargs)
             self.associate_mat = True
 
             if self.verbose: 
                 print('Initialized BudgetIO at ' + dir_name + ' from .mat files. ')
 
+        # else, try with .npz files
         else: 
             self._init_npz(**kwargs)
             self.associate_npz = True
@@ -135,7 +124,7 @@ class BudgetIO():
         Raises OSError if source files cannot be read
         """
 
-        # do namelist stuff - this is necessary if Lx, Ly, ... etc were not passed in. 
+        # parse namelist 
         try: 
             self._read_inputfile(**kwargs)  # this initializes convenience variables
             
@@ -184,7 +173,8 @@ class BudgetIO():
         # TODO: fix reading .info files
         self.time = 0  # self.info[0]
             
-        # loads the grid, normalizes if associate_turbines = True (Should be done AFTER loading turbines to normalize origin)
+        # loads the grid, normalizes if associate_turbines = True 
+        # (Should be done AFTER loading turbines to normalize origin)
         if not self.associate_grid: 
             self._load_grid(**kwargs)
             
@@ -192,8 +182,8 @@ class BudgetIO():
         if self.verbose: 
             print('BudgetIO initialized using info files at time:' + '{:.06f}'.format(self.time))
         
+        # try to associate fields
         self.field = {}
-        
         try: 
             self.last_tidx = self.unique_tidx(return_last=True)  # last tidx in the run with fields
             self.associate_fields = True
@@ -202,7 +192,8 @@ class BudgetIO():
             warnings.warn("_init_padeops(): No field files found!")
             if self.verbose: 
                 print("\tNo field files found!")
-            
+        
+        # try to associate budgets
         try: 
             self.all_budget_tidx = self.unique_budget_tidx(return_last=False)
             self.associate_budgets = True
@@ -235,10 +226,6 @@ class BudgetIO():
         -------
         None
         """
-        
-        if f90nml is None: 
-            warnings.warn('_read_inputfile(): No namelist reader loaded. ')
-            return
                         
         # search all files ending in '*.dat' 
         inputfile_ls = glob.glob(self.dir_name + os.sep + '*.dat')  # for now, just search this 
@@ -306,9 +293,18 @@ class BudgetIO():
             self.Re = self.input_nml['physics']['re']
 
         if self.input_nml['physics']['usecoriolis']: 
-            self.Ro = self.input_nml['physics']['ro']
+            self.Ro = key_search_r(self.input_nml, 'ro') 
+            self.lat = key_search_r(self.input_nml, 'latitude')
+            self.Ro_f = self.Ro / (2*np.cos(self.lat*np.pi/180))
         else: 
             self.Ro = np.Inf
+
+        if key_search_r(self.input_nml, 'isstratified'): 
+            self.Fr = key_search_r(self.input_nml, 'fr')
+        else: 
+            self.Fr = np.Inf
+        
+        self.galpha = key_search_r(self.input_nml, 'g_alpha')
 
     
     def _load_grid(self, x=None, y=None, z=None, **kwargs): 
@@ -347,26 +343,47 @@ class BudgetIO():
 
             self.xLine = np.linspace(0,self.Lx-self.dx,self.nx)
             self.yLine = np.linspace(0,self.Ly-self.dy,self.ny)
+            # staggered in z
             self.zLine = np.linspace(self.dz/2,self.Lz-(self.dz/2),self.nz)
+        
+        self.origin = (0, 0, 0)  # default origin location
 
         self.associate_grid = True
-        # TODO: formalize this in a better way, preferably in its own function
-        # if self.associate_turbines: 
-        #     if self.turbineArray.num_turbines == 1: 
-        #         if self.verbose: 
-        #             print('_load_grid: attempting to normalize the origin to the turbine')
-                    
-        #         if 'normalize_origin' in kwargs and not kwargs['normalize_origin']: 
-        #             print("One turbine found, but keeping domain coordinates")
-                    
-        #         else: 
-        #             if self.verbose: 
-        #                 print("Reading 1 turbine, normalizing origin. To turn off, initialize with `normalize_origin=False`")
-        #             self.xLine -= self.turbineArray.xloc
-        #             self.yLine -= self.turbineArray.yloc
-        #             self.zLine -= self.turbineArray.zloc
-                    
-        #             self.normalized_xyz = True
+
+        if 'normalize_origin' in kwargs and kwargs['normalize_origin']: 
+            if kwargs['normalize_origin'] in ['turb', 'turbine'] and self.associate_turbines: 
+                self.turbineArray.set_sort('xloc', sort=True)
+                self.normalize_origin(self.turbineArray.turbines[0].pos)
+            
+            else: 
+                self.normalize_origin(kwargs['normalize_origin'])
+            
+
+
+    def normalize_origin(self, xyz): 
+        """
+        Normalize the origin to point xyz
+        
+        Parameters
+        ----------
+        xyz : None or tuple
+            If tuple, moves the origin to (x, y, z)
+            If none, resets the origin. 
+        """
+        
+        if xyz is not None: 
+            self.xLine -= (xyz[0] - self.origin[0])
+            self.yLine -= (xyz[1] - self.origin[1])
+            self.zLine -= (xyz[2] - self.origin[2])
+            self.normalized_xyz=True
+            self.origin = xyz
+
+        else: 
+            self.xLine += self.origin[0]
+            self.yLine += self.origin[1]
+            self.zLine += self.origin[2]
+            self.normalized_xyz=False
+            self.origin = (0, 0, 0)
 
 
     def _init_npz(self, **kwargs): 
@@ -414,7 +431,7 @@ class BudgetIO():
 
 
 
-    def _init_mat(self): 
+    def _init_mat(self, **kwargs): 
         """
         Initializes the BudgetIO object by attempting to read .npz files saved from a previous
         BudgetIO object from write_mat(). 
@@ -457,7 +474,8 @@ class BudgetIO():
         if not self.associate_grid: 
             self._load_grid(x=np.squeeze(ret['x']), 
                             y=np.squeeze(ret['y']), 
-                            z=np.squeeze(ret['z']))
+                            z=np.squeeze(ret['z']), 
+                            **kwargs)
 
         if self.verbose: 
             print('_init_mat(): BudgetIO initialized using .mat files.')
@@ -488,12 +506,17 @@ class BudgetIO():
             
         parameters 
         ----------
-        write_dir (str) : location to write .npz files. Default: same directory as self.outputdir_name
-        budget_terms : list of budget terms to be saved (see ._parse_budget_terms()). Alternatively, 
+        write_dir : str
+            Location to write .npz files. Default: same directory as self.outputdir_name
+        budget_terms : list 
+            Budget terms to be saved (see ._parse_budget_terms()). Alternatively, 
             use 'current' to save the budget terms that are currently loaded. 
-        filename (str) : calls self.set_filename()
-        overwrite (bool) : if true, will overwrite existing .npz files. 
-        xlim, ylim, zlim : slice bounds, see BudgetIO.slice()  # TODO: SAVE X,Y,Z information of slices
+        filename : str
+            Sets the filename of written files
+        overwrite : bool
+            If true, will overwrite existing .npz files. 
+        xlim, ylim, zlim : slice bounds
+            See BudgetIO.slice()  # TODO: SAVE X,Y,Z information of slices
         """
         
         if not self.associate_budgets: 
@@ -515,12 +538,11 @@ class BudgetIO():
         # load budgets
         sl = self.slice(budget_terms=key_subset, xlim=xlim, ylim=ylim, zlim=zlim)
 
-        # if `filename` is provided, change this in the object
-        # importantly, this needs to be done AFTER reading budgets
-        if filename is not None: 
-            self.set_filename(filename)
+        # if `filename` is provided, write files with the provided name
+        if filename is None: 
+            filename = self.filename
 
-        filepath = write_dir + os.sep + self.filename_budgets + '.npz'
+        filepath = write_dir + os.sep + filename + '_budgets.npz'
         
         # don't unintentionally overwrite files... 
         write_arrs = False 
@@ -544,14 +566,14 @@ class BudgetIO():
         if write_arrs: 
             np.savez(filepath, **save_arrs)
             
-            self.write_metadata(write_dir)  # TODO, need to save slice axes
+            self.write_metadata(write_dir, filename)  # TODO, need to save slice axes
             
             if self.verbose: 
                 print("write_npz: Successfully saved the following budgets: ", list(key_subset))
                 print("at " + filepath)
         
         
-    def write_metadata(self, write_dir, xlim=None, ylim=None, zlim=None): 
+    def write_metadata(self, write_dir, fname, xlim=None, ylim=None, zlim=None): 
         """
         The saved budgets aren't useful on their own unless we also save some information like the mesh
         used in the simulation and some other information like the physical setup. That goes here. 
@@ -576,27 +598,28 @@ class BudgetIO():
         else: 
             meta = self.input_nml.todict().copy()  # copy is probably unnecessary
         
-        filename = write_dir + os.sep + self.filename + '_metadata.npy'
+        filename = write_dir + os.sep + fname + '_metadata.npy'
         np.save(filename, meta)
         
         if self.verbose: 
             print('write_metadata(): metadata written to {}'.format(filename))
             
             
-    def write_mat(self, write_dir=None, budget_terms='default', filename=None, overwrite=False, 
+    def write_mat(self, write_dir=None, budget_terms='default', 
+                  filename=None, overwrite=False, 
                   xlim=None, ylim=None, zlim=None): 
         """
         Saves budgets as .mat (MATLAB) files. This is lazy code copied from write_npz(). 
             
         Parameters 
         ----------
-        write_dir : string
+        write_dir : str
             location to write .mat files. Default: same directory as self.outputdir_name
         budget_terms : list
             budget terms to be saved (see ._parse_budget_terms()). Alternatively, 
             use 'current' to save the budget terms that are currently loaded. 
-        filename : string
-            calls self.set_filename()
+        filename : str
+            Sets the filename of written files
         overwrite : bool
             if true, will overwrite existing .mat files. 
         xlim, ylim, zlim : slice bounds
@@ -617,10 +640,10 @@ class BudgetIO():
         # load budgets
         sl = self.slice(budget_terms=key_subset, xlim=xlim, ylim=ylim, zlim=zlim)
 
-        if filename is not None: 
-            self.set_filename(filename)
+        if filename is None: 
+            filename = self.filename
         
-        filepath = write_dir + os.sep + self.filename_budgets + '.mat'
+        filepath = write_dir + os.sep + filename + '_budgets.mat'
         
         # don't unintentionally overwrite files... 
         write_arrs = False  
@@ -659,7 +682,7 @@ class BudgetIO():
                     save_dict['t{:d}_power'.format(k+1)] = self.read_turb_power(tidx='all', steady=False, turb=k+1)
                     save_dict['t{:d}_uvel'.format(k+1)] = self.read_turb_uvel(tidx='all', steady=False, turb=k+1)
                 
-            filepath_meta = os.path.join(write_dir, self.filename + '_metadata.mat')
+            filepath_meta = os.path.join(write_dir, filename + '_metadata.mat')
             savemat(filepath_meta, save_dict)
             
             if self.verbose: 
@@ -675,14 +698,16 @@ class BudgetIO():
         
         Parameters
         ----------
-        field_terms (list) : list of field terms to read, must be be limited to: 
+        field_terms : list
+            list of field terms to read, must be be limited to: 
             'u', 'v', 'w', 'p', 'T'
-        tidx (int) : reads fields from the specified time ID. Default: self.last_tidx 
+        tidx : int, optional
+            reads fields from the specified time ID. Default: self.last_tidx 
         
         Returns
         -------
         None
-        
+            Read fields are saved in self.field
         """
         
         if not self.associate_fields: 
@@ -754,14 +779,24 @@ class BudgetIO():
         """
         Accompanying method to write_budgets. Reads budgets saved as .npz files 
         
-        Arguments 
-        ---------
-        budget_terms : list of terms (see ._parse_budget_terms())
-        mmap : default None. Sets the memory-map settings in numpy.load(). Expects None, 'r+', 'r', 'w+', 'c'
-        overwrite (bool) : if True, re-loads budgets that have already been loaded. Default False; checks  
-            existing budgets before loading new ones. 
-        tidx (int) : if given, requests budget dumps at a specific time ID. Default None. This only affects
-            reading from PadeOps output files; .npz are limited to one saved tidx. 
+        Parameters 
+        ----------
+        budget_terms : list 
+            Budget terms (see ._parse_budget_terms() and budgetkey.py)
+        mmap : str, optional
+            Default None. Sets the memory-map settings in numpy.load(). 
+            Expects None, 'r+', 'r', 'w+', 'c'
+        overwrite : bool, optional
+            If True, re-loads budgets that have already been loaded. Default False; 
+            checks existing budgets before loading new ones. 
+        tidx : int, optional
+            If given, requests budget dumps at a specific time ID. Default None. This only affects
+            reading from PadeOps output files; .npz and .mat are limited to one saved tidx. 
+
+        Returns
+        -------
+        None
+            Saves result in self.budget
         """
         
         if not self.associate_budgets: 
@@ -852,7 +887,7 @@ class BudgetIO():
 
         # load the npz file and keep the requested budget keys
         for key in key_subset: 
-            npz = np.load(self.dir_name + os.sep + self.filename_budgets + '.npz')
+            npz = np.load(self.dir_name + os.sep + self.filename + '_budgets.npz')
             self.budget[key] = npz[key]  
 
         if self.verbose: 
@@ -865,7 +900,7 @@ class BudgetIO():
         """
 
         for key in key_subset: 
-            budgets = loadmat(self.dir_name + os.sep + self.filename_budgets + '.mat')
+            budgets = loadmat(self.dir_name + os.sep + self.filename + '_budgets.mat')
             self.budget[key] = budgets[key]  
 
         if self.verbose: 
@@ -889,7 +924,8 @@ class BudgetIO():
         Arguments
         ---------
         budget_terms : list of strings or string, see above
-        include_wakes (bool) : optional, includes wake budgets if True, default False. 
+        include_wakes : bool, optional
+            includes wake budgets if True, default False. 
         """
 
         # add string shortcuts here... # TODO move shortcuts to budgetkey.py? 
@@ -1239,6 +1275,8 @@ class BudgetIO():
         """
 
         # TODO: fix for .npz
+        if self.associate_mat or self.associate_npz: 
+            return None  
 
         # retrieves filenames and parses unique integers, returns an array of unique integers
         filenames = os.listdir(self.dir_name)
@@ -1274,6 +1312,10 @@ class BudgetIO():
             list of times associated with each time ID in unique_tidx()
         """
         
+        # TODO: fix for .npz
+        if self.associate_mat or self.associate_npz: 
+            return None  
+
         times = []; 
         
         if return_last:  # save time by only reading the final TIDX
