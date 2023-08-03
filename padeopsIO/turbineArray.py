@@ -75,11 +75,11 @@ class TurbineArray():
             if i >= self.num_turbines: 
                 break  # only read in up to num_turbines turbines
                 
-            self.array.append(turb_nml)
+            self.array.append(turb_nml)  # deprecate this
             self.turbines.append(Turbine(turb_nml, verbose=self.verbose, n=i+1, sort=self._sort_by))
             
             if self.verbose: 
-                print("\tTurbineArray: added turbine to array form file", filename)
+                print("\tTurbineArray: added turbine to array")
                 
         # sort the turbine array: 
         self.sort()
