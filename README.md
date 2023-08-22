@@ -27,7 +27,7 @@ cd $install_dir
 git clone -b main https://github.com/kirbyh/PadeOpsIO.git
 
 # then add with pip
-pip install . -e
+pip install -e padeopsio
 ```
 
 The module can be imported into a Python script with: 
