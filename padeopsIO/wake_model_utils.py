@@ -29,13 +29,18 @@ def gaussian_wake_fit_con(y, wake, p0, u0=None, y0=None):
     
     Parameters
     ----------
-    y (array) : y-axis along hub plane
-    wake (array) : wake deficit u_inf-u(x=x',y,z=zhub) along the given y-axis
-    p0 (float) : initial guess for sigma(x)
-    u0 (float) : maximum wake deficit. If None, then this is computed. 
-    y0 (float) : location of maximum deficit. If None, then this is computed. If another
-        value (e.g. the lateral turbine location) is given, then this will be forced into 
-        the curve fit. 
+    y : 1d array
+        y-axis along hub plane
+    wake : 1d array
+        wake deficit u_inf-u(x=x',y,z=zhub) along the given y-axis
+    p0 : float
+        initial guess for sigma(x)
+    u0 : float, optional
+        maximum wake deficit. If None, then this is computed as max(wake). 
+    y0 : float, optional
+        location of maximum deficit. If None, then this is computed as y[np.argmax(wake)]. 
+        If another value (e.g. the lateral turbine location) is given, then this will be 
+        forced into the curve fit. 
         
     Returns
     -------
@@ -58,20 +63,25 @@ def gaussian_wake_fit_con(y, wake, p0, u0=None, y0=None):
 
 # ============ additional brute-force wake fitting functions ===============
 
-def _compare_wm(x, xG, yG, uwake_ref, CT, yaw, order=2, phi_hub=0): 
+def _compare_wm(x, xG, yG, uwake_ref, CT, yaw, order=2, phi_hub=0, mask_thresh=None): 
     """
     xy-plane helper function
     """
     kw, sigma = x
     wake = ActuatorDisk.MITWake(CT, yaw, kw=kw, sigma=sigma, phi_hub=phi_hub)
     
+    if mask_thresh is None: 
+        mask = 1
+    else: 
+        mask = uwake_ref > mask_thresh
+    
     uwake = wake.deficit(xG, yG)
-    diff = np.ravel(abs(uwake - uwake_ref))
+    diff = np.ravel(abs(uwake - uwake_ref) * mask)
     
     res = np.linalg.norm(diff, ord=order)
     return res
 
-def calibrate_wm(xax, yax, uwake_ref, ct, yaw, order=2, phi_hub=0): 
+def calibrate_wm(xax, yax, uwake_ref, ct, yaw, order=2, phi_hub=0, mask_thresh=None): 
     """
     Calibrate kw, sigma0 to a reference slice in the xy-plane. 
 
@@ -89,8 +99,10 @@ def calibrate_wm(xax, yax, uwake_ref, ct, yaw, order=2, phi_hub=0):
         yaw (radians) of the leading turbine. 
     order : int, optional
         Order for taking norms; Default 2. 
-    phi_hub : float
-        Hub height wind direction, with respect to +x axis (radians)
+    phi_hub : float, optional
+        Hub height wind direction, with respect to +x axis (radians). Default 0
+    mask_thresh : float, optional
+        Threshold to cut off uwake_ref field. Default None (no mask)
 
     Returns
     -------
@@ -103,7 +115,7 @@ def calibrate_wm(xax, yax, uwake_ref, ct, yaw, order=2, phi_hub=0):
     res = optimize.minimize(
         _compare_wm, 
         x0, 
-        args=(xG, yG, uwake_ref, ct, yaw, order, phi_hub), 
+        args=(xG, yG, uwake_ref, ct, yaw, order, phi_hub, mask_thresh), 
         bounds=[(1e-3, 0.2), 
                 (1e-3, 0.5)]
     )
@@ -111,22 +123,28 @@ def calibrate_wm(xax, yax, uwake_ref, ct, yaw, order=2, phi_hub=0):
     return res
 
 # Calibrate to 2D (or 3D) flow field
-def _compare_wm2(x, xG, yG, zG, uwake_ref, CT, yaw, order=2, phi_hub=0): 
+def _compare_wm2(x, xG, yG, zG, uwake_ref, CT, yaw, order=2, phi_hub=0, mask_thresh=None): 
     kw, sigma = x
     wake = ActuatorDisk.MITWake(CT, yaw, kw=kw, sigma=sigma)
+    if mask_thresh is not None: 
+        mask = uwake_ref > mask_thresh
+    else: 
+        mask = 1.
+
     uwake = wake.deficit(xG, yG, z=zG)
-    diff = abs(uwake - uwake_ref)
+    diff = abs(uwake - uwake_ref) * mask_thresh
 
     res = np.linalg.norm(np.ravel(diff), ord=order)
     return res
 
-def calibrate_wm2(xax, yax, zax, uwake_ref, ct, yaw, order=2, phi_hub=0): 
-    x0 = [0.08, 0.25]
+def calibrate_wm2(xax, yax, zax, uwake_ref, ct, yaw, order=2, phi_hub=0, mask_thresh=None, x0=None): 
+    if x0 is None: 
+        x0 = [0.08, 0.25]
     xG, yG, zG = np.meshgrid(xax, yax, zax, indexing='ij')
     res = optimize.minimize(
         _compare_wm2, 
         x0, 
-        args=(xG, yG, zG, uwake_ref, ct, yaw, order, phi_hub), 
+        args=(xG, yG, zG, uwake_ref, ct, yaw, order, phi_hub, mask_thresh), 
         bounds=[(1e-3, 0.2), 
                 (1e-3, 0.5)]
     )
@@ -166,3 +184,55 @@ def get_uwake(CT, yaw, kw, sigma, xax, yax, zax=0, phi_hub=0):
     uwake = wake.deficit(xG, yG, z=zG)
     return np.squeeze(uwake)
 
+
+def CTprime_CT(CT_prime): 
+    a = CT_prime/(4+CT_prime)
+    return 4*a*(1-a)
+
+
+def CT_sigma(CT): 
+    beta = 0.5 * (1 + np.sqrt(1 - CT)) / np.sqrt(1 - CT)
+    return 0.2 * np.sqrt(beta)
+
+
+def _compare_con(x, xG, yG, uwake_ref, CT, yaw, order=2, phi_hub=0, mask_thresh=None): 
+    """
+    Helper function for constrained optimization    
+    """
+    kw = x
+    ct = CTprime_CT(CT)  # CT is C_T'
+    sigma = CT_sigma(ct)
+    wake = ActuatorDisk.MITWake(CT, yaw, kw=kw, sigma=sigma, phi_hub=phi_hub)
+    
+    if mask_thresh is None: 
+        mask = 1
+    else: 
+        mask = uwake_ref > mask_thresh
+    
+    uwake = wake.deficit(xG, yG)
+    diff = (uwake - uwake_ref) * mask
+    
+    res = np.linalg.norm(np.ravel(diff), ord=order)
+    return res
+
+
+def calibrate_con(case, u_hub, xlim=[4., 5.], order=1, phi_hub=0, mask_thresh=None): 
+    """Constrained calibration for sigma"""
+    
+    sl = case.slice(budget_terms=['ubar'], xlim=xlim, zlim=0)
+    adm = case.turbineArray.turbines[0]
+    uwake_ref = (u_hub - sl['ubar'])/u_hub
+
+    x0 = 0.02
+    xG, yG = np.meshgrid(sl['x'], sl['y'], indexing='ij')
+    
+    res = optimize.minimize(
+        _compare_con, 
+        x0, 
+        args=(xG, yG, uwake_ref, adm.ct, np.deg2rad(adm.yaw), order, phi_hub, mask_thresh), 
+        bounds=[(1e-3, 0.2)]
+    )
+    CT = CTprime_CT(adm.ct)
+    sigma = CT_sigma(CT)
+    res.x = np.array([res.x[0], sigma])
+    return res
