@@ -1139,13 +1139,14 @@ class BudgetIO():
 
         # parse what field arrays to slice into
         if field is not None:             
-            if type(field) == dict: 
+            if isinstance(field, dict): 
                 # iterate through dictionary of fields
                 if keys is None: 
                     keys = field.keys()
                 preslice = field
             else: 
                 preslice = {'field': field}
+                keys = ['field']
 
         elif budget_terms is not None: 
             # read budgets
