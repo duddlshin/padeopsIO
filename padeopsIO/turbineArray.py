@@ -10,18 +10,25 @@ class TurbineArray():
     """
     
     def __init__(self, turb_dir=None, num_turbines=None, 
-                 init_ls=[], init_dict=None, 
-                 ADM_type=None, verbose=False, sort='xloc'): 
+                 init_ls=None, init_dict=None, 
+                 ADM_type=5, verbose=False, sort='xloc'): 
         """
         Constructor function for a TurbineArray class
         
         Parameters
         ----------
-        turb_dir (path-like) : path to a turbine array directory in PadeOps
-        num_turbines (int) : optional, number of turbines. Default: number 
-            of turbine files in turbine directory
-        ADM_type (int) : ADM type. Default: 2. 
-        verbose (bool) : additional print statements
+        turb_dir : path
+            Path to a turbine array directory in PadeOps
+        num_turbines : int, optional
+            Number of turbines. Default: number of turbine files in turbine directory
+        init_ls : list, optional
+            List of initialization (namelist) files. Default []
+        init_dict : dict, optional
+            Dictionary from self.todict(). Bypasses `turb_dir` if not None. 
+        ADM_type : int, optional
+            ADM type. Default: 5. 
+        verbose : bool, optional
+            additional print statements
         
         Returns
         -------
@@ -39,10 +46,11 @@ class TurbineArray():
             return
         
         self.turb_dir = turb_dir
+        if init_ls is None: 
+            init_ls = []
                 
         if turb_dir is not None: 
             # glean namelist inputs from the turbine directory
-
             if len(init_ls) == 0: 
                 # begin reading in turbines
                 filenames = os.listdir(turb_dir)
@@ -56,14 +64,13 @@ class TurbineArray():
             elif self.verbose: 
                 print('__init__(): `turb_dir` superceded by `init_ls` kwarg.')
 
+        # set number of turbines
         if num_turbines is not None: 
             self.num_turbines = num_turbines
             
-            if num_turbines != len(init_ls):  
-                warnings.warn("Not all turbines in the specified directory will be used")
-
-                if self.verbose: 
-                    print("\tRequested {:d} turbines, but found {:d} files.".format(num_turbines, len(init_ls)))
+            if num_turbines != len(init_ls) and self.verbose:  
+                print("\tRequested {:d} turbines, but found {:d} files.".format(num_turbines, len(init_ls)))
+                print("\tNot all turbines in the specified directory will be used")
         else: 
             self.num_turbines = len(init_ls)
             
