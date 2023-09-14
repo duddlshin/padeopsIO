@@ -52,6 +52,7 @@ class BudgetIO():
         # print statements? default False
         if 'verbose' in kwargs and kwargs['verbose']: 
             self.verbose = True 
+            print('Attempting to initialize BudgetIO object at', dir_name)
         else: 
             self.verbose = False
         
@@ -84,7 +85,7 @@ class BudgetIO():
         if ('padeops' in kwargs) and kwargs['padeops']: 
             try: 
                 self._init_padeops(**kwargs)
-                self.associate_padeops = True
+                # self.associate_padeops = True  # moved this inside _init_padeops()
 
                 if self.verbose: 
                     print('Initialized BudgetIO at ' + dir_name + ' from PadeOps source files.')
@@ -140,7 +141,7 @@ class BudgetIO():
             self.tidx = kwargs['tidx']
 
         # READ TURBINES, only do this if usewindturbines = True
-        if self.associate_nml and self.input_nml['windturbines']['usewindturbines']: 
+        if self.associate_nml and self.input_nml['windturbines']['usewindturbines']:  # may throw KeyError
             
             if self.verbose: 
                 print('_init_padeops(): Initializing wind turbine array object')
@@ -181,6 +182,9 @@ class BudgetIO():
         # object is reading from PadeOps output files directly
         if self.verbose: 
             print('BudgetIO initialized using info files at time:' + '{:.06f}'.format(self.time))
+            
+        # at this point, we are reading from PadeOps output files
+        self.associate_padeops = True
         
         # try to associate fields
         self.field = {}
@@ -188,7 +192,7 @@ class BudgetIO():
             self.last_tidx = self.unique_tidx(return_last=True)  # last tidx in the run with fields
             self.associate_fields = True
 
-        except ValueError as e: 
+        except FileNotFoundError as e: 
             warnings.warn("_init_padeops(): No field files found!")
             if self.verbose: 
                 print("\tNo field files found!")
@@ -197,7 +201,7 @@ class BudgetIO():
         try: 
             self.all_budget_tidx = self.unique_budget_tidx(return_last=False)
             self.associate_budgets = True
-        except ValueError as e: 
+        except FileNotFoundError as e: 
             warnings.warn("_init_padeops(): No budget files found!")
             if self.verbose: 
                 print("\tNo budget files found.")
@@ -229,6 +233,9 @@ class BudgetIO():
                         
         # search all files ending in '*.dat' 
         inputfile_ls = glob.glob(self.dir_name + os.sep + '*.dat')  # for now, just search this 
+        
+        if len(inputfile_ls) == 0: 
+            raise FileNotFoundError('_read_inputfile(): No inputfiles found at {:s}'.format(self.dir_name))
             
         if self.verbose: 
             print("\tFound the following files:", inputfile_ls)
@@ -1225,8 +1232,21 @@ class BudgetIO():
 
         return get_xids(**kwargs)
     
+    
+    def xy_avg(self, budget_terms=None, zlim=None, **slice_kwargs): 
+        """x-averages requested budget terms"""
+        tmp = self.slice(budget_terms=budget_terms, xlim=None, ylim=None, zlim=zlim, **slice_kwargs)
+        
+        ret = {}
+        for key in tmp['keys']: 
+            ret[key] = np.mean(tmp[key], (0, 1))
+            
+        ret['keys'] = tmp['keys']
+        ret['z'] = tmp['z']
+        return ret
+    
 
-    def unique_tidx(self, return_last=False): 
+    def unique_tidx(self, return_last=False, search_str='Run{:02d}.*_t(\d+).*.out'): 
         """
         Pulls all the unique tidx values from a directory. 
         
@@ -1239,22 +1259,31 @@ class BudgetIO():
         -------
         t_list : array
             List of unique time IDs (TIDX)
+        return_last : bool, optional
+            if True, returns only the last (largest) entry. Default False
+        search_str : regex, optional
+            Regular expression for the search string and capture groups
         """
 
         if not self.associate_padeops:
-            pass  # TODO - is this lost information? is it useful information? 
+            return None  # TODO - is this lost information? is it useful information? 
             
         # retrieves filenames and parses unique integers, returns an array of unique integers
         filenames = os.listdir(self.dir_name)
         runid = self.runid
         
         # searches for the formatting *_t(\d+)* in all filenames
-        t_list = [int(re.findall('Run{:02d}.*_t(\d+).*.out'.format(runid), name)[0]) 
+        t_list = [int(re.findall(search_str.format(runid), name)[0]) 
                   for name in filenames 
-                  if re.findall('Run{:02d}.*_t(\d+).*.out'.format(runid), name)]
+                  if re.findall(search_str.format(runid), name)]
+        
+        if len(t_list) == 0: 
+            raise FileNotFoundError('unique_tidx(): No files found')
+        
+        t_list.sort()
         
         if return_last: 
-            return np.max(t_list)
+            return t_list[-1]
         else: 
             return np.unique(t_list)
 
@@ -1273,28 +1302,15 @@ class BudgetIO():
         -------
         t_list : array
             List of unique budget time IDs (TIDX)
+        return_last : bool, optional
+            if True, reutnrs only the last (largest) entry. Default True
         """
 
         # TODO: fix for .npz
-        if self.associate_mat or self.associate_npz: 
-            return None  
-
-        # retrieves filenames and parses unique integers, returns an array of unique integers
-        filenames = os.listdir(self.dir_name)
-        runid = self.runid
-        
-        # searches for the formatting *_t(\d+)* in budget filenames
-        t_list = [int(re.findall('Run{:02d}.*budget.*_t(\d+).*'.format(runid), name)[0]) 
-                  for name in filenames 
-                  if re.findall('Run{:02d}.*budget.*_t(\d+).*'.format(runid), name)]
-        
-        if len(t_list) == 0: 
-            raise ValueError("No budget times found. ")
-        
-        if return_last: 
-            return np.max(t_list)
-        else: 
-            return np.unique(t_list)
+        if not self.associate_padeops: 
+            return None 
+            
+        return self.unique_tidx(return_last=return_last, search_str='Run{:02d}.*budget.*_t(\d+).*')
         
         
     def unique_times(self, return_last=False): 
@@ -1314,7 +1330,7 @@ class BudgetIO():
         """
         
         # TODO: fix for .npz
-        if self.associate_mat or self.associate_npz: 
+        if not self.associate_padeops: 
             return None  
 
         times = []; 
@@ -1339,15 +1355,10 @@ class BudgetIO():
         """
 
         # TODO: fix for .npz
-
-        filenames = os.listdir(self.dir_name)
-        runid = self.runid
-
-        # capturing *_n(\d+)* in filenames
-        t_list = [int(re.findall('Run{:02d}.*_n(\d+).*'.format(runid), name)[0]) 
-                  for name in filenames 
-                  if re.findall('Run{:02d}.*_n(\d+).*'.format(runid), name)]
-        return np.max(t_list)
+        if not self.associate_padeops: 
+            return None 
+            
+        return self.unique_tidx(return_last=True, search_str='Run{:02d}.*_n(\d+).*')
     
     
     def existing_budgets(self): 
@@ -1642,7 +1653,7 @@ class BudgetIO():
             return ret  # this is an array
         
         
-    def read_turb_property(self, tidx, prop_str, turb=1, **kwargs): 
+    def read_turb_property(self, tidx, prop_str, turb=1, steady=None): 
         """
         Helper function to read turbine power, uvel, vvel. Calls self._read_turb_file() 
         for every time ID in tidx. 
@@ -1659,10 +1670,19 @@ class BudgetIO():
         if tidx is None: 
             tidx = [self.last_tidx]  # just try the last TIDX by default
         elif tidx == 'all': 
-            tidx = self.unique_tidx()
+            tidx = self.unique_tidx(search_str='Run{:02d}.*_t(\d+).*.pow')
         
+        if not hasattr(tidx, '__iter__'): 
+            tidx = np.atleast_1d(tidx)
+            
+        if steady == None: 
+            if len(tidx) > 1: 
+                steady = False  # assume if calling for more than 1 time ID, that steady is FALSE by default
+            else: 
+                steady = True
+            
         for tid in tidx:  # loop through time IDs and call helper function
-            prop = self._read_turb_file(prop_str, tid=tid, turb=turb, **kwargs)
+            prop = self._read_turb_file(prop_str, tid=tid, turb=turb, steady=steady)
             if type(prop) == np.float64:  # if returned is not an array, cast to an array
                 prop = np.array([prop])
             prop_time.append(prop)

@@ -162,6 +162,10 @@ def structure_to_dict(arr):
             val = structure_to_dict(val)
             ret[key] = val  # store the dictionary
         else: 
-            ret[key] = val.flat[0]  # store the key/value pairing
+            if len(val.flat) == 1: 
+                ret[key] = val.flat[0]  # store the key/value pairing
+            else: 
+                ret[key] = [item for item in val.flat]  # store the key/value pairing
+
         
     return ret  # return (nested) dict
