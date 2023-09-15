@@ -45,11 +45,11 @@ class TurbineArray():
                 print("TurbineArray: Initialized from", turb_dir)
             return
         
-        self.turb_dir = turb_dir
         if init_ls is None: 
             init_ls = []
                 
         if turb_dir is not None: 
+            print('DEBUG: turbine dir is not None')
             # glean namelist inputs from the turbine directory
             if len(init_ls) == 0: 
                 # begin reading in turbines
@@ -63,6 +63,10 @@ class TurbineArray():
                     init_ls.append(turb_nml)
             elif self.verbose: 
                 print('__init__(): `turb_dir` superceded by `init_ls` kwarg.')
+        else: 
+            turb_dir = ''  # troubles with saving Nonetype in scipy.io.savemat
+        self.turb_dir = turb_dir
+            
 
         # set number of turbines
         if num_turbines is not None: 

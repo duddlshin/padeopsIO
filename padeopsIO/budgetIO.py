@@ -12,6 +12,7 @@ from padeopsIO.io_utils import structure_to_dict, key_search_r
 from padeopsIO.wake_utils import *
 from padeopsIO.nml_utils import parser
 
+
 class BudgetIO(): 
     """
     Class for reading and writing outputfiles to PadeOps. 
@@ -19,7 +20,11 @@ class BudgetIO():
 
     key = budgetkey.get_key()
 
-    def __init__(self, dir_name, **kwargs): 
+    def __init__(self, dir_name, verbose=False, filename=None, 
+                 runid=None, normalize_origin=False, 
+                 padeops=False, npz=False, mat=False, 
+                 read_budgets=None, 
+                ): 
         """
         Creates different instance variables depending on the keyword arguments given. 
         
@@ -50,7 +55,7 @@ class BudgetIO():
         """
 
         # print statements? default False
-        if 'verbose' in kwargs and kwargs['verbose']: 
+        if verbose: 
             self.verbose = True 
             print('Attempting to initialize BudgetIO object at', dir_name)
         else: 
@@ -59,13 +64,13 @@ class BudgetIO():
         self.dir_name = dir_name
         
         # all files associated with this case will begin with <filename>
-        if not 'filename' in kwargs: 
+        if filename is None: 
             # defaults to the directory name, split on non-word characters
             dir_list = re.split('\W+', dir_name)
             # pick the last non-empty string
             self.filename = next(s for s in reversed(dir_list) if s)
         else: 
-            self.filename = kwargs['filename']
+            self.filename = filename
 
         self.filename_budgets = self.filename + '_budgets'  # standardize this
         
@@ -82,11 +87,10 @@ class BudgetIO():
         self.associate_turbines = False
         self.normalized_xyz = False
 
-        if ('padeops' in kwargs) and kwargs['padeops']: 
+        if padeops: 
             try: 
-                self._init_padeops(**kwargs)
+                self._init_padeops(runid=runid, normalize_origin=normalize_origin)
                 # self.associate_padeops = True  # moved this inside _init_padeops()
-
                 if self.verbose: 
                     print('Initialized BudgetIO at ' + dir_name + ' from PadeOps source files.')
 
@@ -95,30 +99,29 @@ class BudgetIO():
                 print(err)
                 raise
         
-        # if padeops wasn't specifically requested, try with .mat files: 
-        elif 'mat' in kwargs and kwargs['mat']: 
-            self._init_mat(**kwargs)
-            self.associate_mat = True
+        elif mat:  # .mat save files
+            self._init_mat(normalize_origin=normalize_origin)
 
             if self.verbose: 
                 print('Initialized BudgetIO at ' + dir_name + ' from .mat files. ')
 
-        # else, try with .npz files
-        else: 
-            self._init_npz(**kwargs)
-            self.associate_npz = True
+        elif npz:  # .npz save files
+            self._init_npz(normalize_origin=normalize_origin)
 
             if self.verbose: 
                 print('Initialized BudgetIO at ' + dir_name + ' from .npz files. ')
+        
+        else: 
+            raise AttributeError("__init__(): ")
 
         self.budget = {}  # empty dictionary
 
-        if 'read_budgets' in kwargs: 
+        if read_budgets is not None: 
             # if read_budgets passed in as keyword argument, read budgets on initialization
-            self.read_budgets(budget_terms=kwargs['read_budgets'])
+            self.read_budgets(budget_terms=read_budgets)
     
 
-    def _init_padeops(self, **kwargs): 
+    def _init_padeops(self, runid=None, normalize_origin=False): 
         """
         Initializes source files to be read from output files in PadeOps. 
         
@@ -127,7 +130,7 @@ class BudgetIO():
 
         # parse namelist 
         try: 
-            self._read_inputfile(**kwargs)  # this initializes convenience variables
+            self._read_inputfile(runid=runid)  # this initializes convenience variables
             
         except IndexError as err: 
             warnings.warn("_init_padeops(): Could not find input file. Perhaps the directory does not exist? ")
@@ -135,13 +138,11 @@ class BudgetIO():
             raise err
         
         # default time ID for initialization
-        if not 'tidx' in kwargs: 
-            self.tidx = 0  # tidx defualts to zero
-        else: 
-            self.tidx = kwargs['tidx']
+        self.tidx = 0  # tidx defualts to zero
+        self.time = 0
 
         # READ TURBINES, only do this if usewindturbines = True
-        if self.associate_nml and self.input_nml['windturbines']['usewindturbines']:  # may throw KeyError
+        if self.associate_nml and self.input_nml['windturbines']['usewindturbines']:  # TODO may throw KeyError 
             
             if self.verbose: 
                 print('_init_padeops(): Initializing wind turbine array object')
@@ -168,16 +169,11 @@ class BudgetIO():
         # Throw an error if no RunID is found 
         if 'runid' not in self.__dict__:
             raise AttributeError("No RunID found. To explicitly pass one in, use kwarg: runid=")
-        
-        # info_fname = self.dir_name + '/Run{:02d}_info_t{:06d}.out'.format(self.runid, self.tidx)
-        # self.info = np.genfromtxt(info_fname, dtype=None)  
-        # TODO: fix reading .info files
-        self.time = 0  # self.info[0]
-            
-        # loads the grid, normalizes if associate_turbines = True 
+                    
+        # loads the grid, normalizes if `associate_turbines=True` and `normalize_origin='turb'`
         # (Should be done AFTER loading turbines to normalize origin)
         if not self.associate_grid: 
-            self._load_grid(**kwargs)
+            self._load_grid(normalize_origin=normalize_origin)
             
         # object is reading from PadeOps output files directly
         if self.verbose: 
@@ -215,11 +211,10 @@ class BudgetIO():
             self.budget_n = self.last_n
             
     
-    def _read_inputfile(self, **kwargs): 
+    def _read_inputfile(self, runid=None): 
         """
         Reads the input file (Fortran 90 namelist) associated with the CFD simulation. 
 
-        
         Parameters
         ----------
         runid : int
@@ -253,8 +248,8 @@ class BudgetIO():
                     print('\t_read_inputfile(): no runid for', inputfile)
                 tmp_runid = None  # not all input files have a RunID
         
-            if 'runid' in kwargs.keys(): 
-                if tmp_runid == kwargs['runid']: 
+            if runid is not None: 
+                if tmp_runid == runid: 
                     self.input_nml = input_nml
                     self._convenience_variables()  # make some variables in the metadata more accessible, also loads grid
                     self.associate_nml = True  # successfully loaded input file
@@ -314,7 +309,7 @@ class BudgetIO():
         self.galpha = key_search_r(self.input_nml, 'g_alpha')
 
     
-    def _load_grid(self, x=None, y=None, z=None, **kwargs): 
+    def _load_grid(self, x=None, y=None, z=None, normalize_origin=None): 
         """
         Creates dx, dy, dz, and xLine, yLine, zLine variables. 
         
@@ -357,14 +352,13 @@ class BudgetIO():
 
         self.associate_grid = True
 
-        if 'normalize_origin' in kwargs and kwargs['normalize_origin']: 
-            if kwargs['normalize_origin'] in ['turb', 'turbine'] and self.associate_turbines: 
+        if normalize_origin: 
+            if normalize_origin in ['turb', 'turbine'] and self.associate_turbines: 
                 self.turbineArray.set_sort('xloc', sort=True)
                 self.normalize_origin(self.turbineArray.turbines[0].pos)
             
             else: 
-                self.normalize_origin(kwargs['normalize_origin'])
-            
+                self.normalize_origin(normalize_origin)  # expects tuple (x, y, z)
 
 
     def normalize_origin(self, xyz): 
@@ -393,7 +387,7 @@ class BudgetIO():
             self.origin = (0, 0, 0)
 
 
-    def _init_npz(self, **kwargs): 
+    def _init_npz(self, normalize_origin=False): 
         """
         Initializes the BudgetIO object by attempting to read .npz files saved from a previous BudgetIO object 
         from write_npz(). 
@@ -402,14 +396,55 @@ class BudgetIO():
         One filename including "{filename}_budgets.npz"
         One filename including "_metadata.npz"
         """
-        
-         # load metadata: expects a file named <filename>_metadata.npy
-        filepath = self.dir_name + os.sep + self.filename + '_metadata.npy'
+        # load metadata: expects a file named <filename>_metadata.npz
+        filepath = self.dir_name + os.sep + self.filename + '_metadata.npz'
         try: 
-            self.input_nml = np.load(filepath, allow_pickle=True).item()
+            ret = np.load(filepath, allow_pickle=True)
         except FileNotFoundError as e: 
             raise e
         
+        self.input_nml = ret['input_nml'].item()
+        self.associate_nml = True
+
+        if 'turbineArray' in ret.files: 
+            init_dict = ret['turbineArray'].item()
+            init_ls = [t for t in init_dict['turbines']]
+            self.turbineArray = turbineArray.TurbineArray(init_ls=init_ls)
+            self.associate_turbines = True
+
+        if 'origin' in ret.files: 
+            self.origin = ret['origin']
+
+        # set convenience variables: 
+        self._convenience_variables()
+        self.associate_nml = True
+        
+        if not self.associate_grid: 
+            self._load_grid(x=np.squeeze(ret['x']), 
+                            y=np.squeeze(ret['y']), 
+                            z=np.squeeze(ret['z']), 
+                            normalize_origin=normalize_origin)
+
+        # load metadata: expects a file named <filename>_metadata.npy
+        # filepath = self.dir_name + os.sep + self.filename + '_metadata.npy'
+        # try: 
+        #     self.input_nml = np.load(filepath, allow_pickle=True).item()
+        # except FileNotFoundError as e: 
+        #     raise e
+        
+        # # attempt to load turbine file - need this before loading grid
+        # if 'auxiliary' in self.input_nml.keys() and 'turbineArray' in self.input_nml['auxiliary']: 
+        #     self.turbineArray = turbineArray.TurbineArray(
+        #         init_dict=self.input_nml['auxiliary']['turbineArray']
+        #         )
+        #     self.associate_turbines = True
+        
+        # self._convenience_variables()
+        # self.associate_nml = True
+        
+        # if not self.associate_grid: 
+        #     self._load_grid(normalize_origin=normalize_origin)
+
        # check budget files
         budget_files = glob.glob(self.dir_name + os.sep + self.filename_budgets + '.npz')
         if len(budget_files) == 0: 
@@ -419,26 +454,14 @@ class BudgetIO():
             self.budget_n = None
             self.budget_tidx = None  
             self.last_n = None  # all these are missing in npz files 04/24/2023
-        
-        # attempt to load turbine file - need this before loading grid
-        if 'auxiliary' in self.input_nml.keys() and 'turbineArray' in self.input_nml['auxiliary']: 
-            self.turbineArray = turbineArray.TurbineArray(
-                init_dict=self.input_nml['auxiliary']['turbineArray']
-                )
-            self.associate_turbines = True
-        
-        self._convenience_variables()
-        self.associate_nml = True
-        
-        if not self.associate_grid: 
-            self._load_grid(**kwargs)
 
         if self.verbose: 
             print('_init_npz(): BudgetIO initialized using .npz files.')
 
+        self.associate_npz = True
 
 
-    def _init_mat(self, **kwargs): 
+    def _init_mat(self, normalize_origin=False): 
         """
         Initializes the BudgetIO object by attempting to read .npz files saved from a previous
         BudgetIO object from write_mat(). 
@@ -458,16 +481,6 @@ class BudgetIO():
         self.input_nml = structure_to_dict(ret['input_nml'])
         self.associate_nml = True
 
-        # link budgets
-        budget_files = glob.glob(self.dir_name + os.sep + self.filename_budgets + '.mat')
-        if len(budget_files) == 0: 
-            warnings.warn("No associated budget files found")
-        else: 
-            self.associate_budgets = True
-            self.budget_n = None
-            self.budget_tidx = None  
-            self.last_n = None  # all these are missing in .mat files 07/03/2023
-
         if 'turbineArray' in ret.keys(): 
             init_dict = structure_to_dict(ret['turbineArray'])
             init_ls = [structure_to_dict(t) for t in init_dict['turbines']]
@@ -482,10 +495,22 @@ class BudgetIO():
             self._load_grid(x=np.squeeze(ret['x']), 
                             y=np.squeeze(ret['y']), 
                             z=np.squeeze(ret['z']), 
-                            **kwargs)
+                            normalize_origin=normalize_origin)
+
+        # link budgets
+        budget_files = glob.glob(self.dir_name + os.sep + self.filename_budgets + '.mat')
+        if len(budget_files) == 0: 
+            warnings.warn("No associated budget files found")
+        else: 
+            self.associate_budgets = True
+            self.budget_n = None
+            self.budget_tidx = None  
+            self.last_n = None  # all these are missing in .mat files 07/03/2023
 
         if self.verbose: 
             print('_init_mat(): BudgetIO initialized using .mat files.')
+
+        self.associate_mat = True
 
 
     def set_filename(self, filename): 
@@ -573,43 +598,48 @@ class BudgetIO():
         if write_arrs: 
             np.savez(filepath, **save_arrs)
             
-            self.write_metadata(write_dir, filename)  # TODO, need to save slice axes
+            # SAVE METADATA
+            self.write_metadata(write_dir, filename, 'npz', sl['x'], sl['y'], sl['z']) 
             
             if self.verbose: 
                 print("write_npz: Successfully saved the following budgets: ", list(key_subset))
                 print("at " + filepath)
         
         
-    def write_metadata(self, write_dir, fname, xlim=None, ylim=None, zlim=None): 
+    def write_metadata(self, write_dir, fname, src, x, y, z): 
         """
         The saved budgets aren't useful on their own unless we also save some information like the mesh
         used in the simulation and some other information like the physical setup. That goes here. 
         
-        #TODO - switch this to an npz file. 
         """
         
-        if self.associate_padeops: 
-            # create a copy of the input namelist
-            
-            meta = self.input_nml.todict().copy() 
-            meta['auxiliary'] = {  # this is new stuff not in the namelist
-                                 'last_n': self.last_n, 
-                                 'last_tidx': self.last_tidx
-                                 # add more things here
-                                }
-            
-            if self.associate_turbines: 
-                meta['auxiliary'].update({
-                    'turbineArray': self.turbineArray.todict()
-                })
-        else: 
-            meta = self.input_nml.todict().copy()  # copy is probably unnecessary
+        save_vars = ['input_nml'] #, 'xLine', 'yLine', 'zLine']
+        save_dict = {key: self.__dict__[key] for key in save_vars}
+        save_dict['x'] = x
+        save_dict['y'] = y
+        save_dict['z'] = z
+        save_dict['origin'] = self.origin
         
-        filename = write_dir + os.sep + fname + '_metadata.npy'
-        np.save(filename, meta)
+        if self.associate_turbines: 
+            save_dict['turbineArray'] = self.turbineArray.todict()
+            for k in range(self.turbineArray.num_turbines): 
+                # write turbine information
+                for prop in ['power', 'uvel', 'vvel']: 
+                    try: 
+                        save_dict['t{:d}_{:s}'.format(k+1, prop)] = self.read_turb_property(tidx='all', prop_str=prop, steady=False, turb=k+1)
+                    except KeyError as e: 
+                        pass
+            
+        filepath_meta = os.path.join(write_dir, fname + f'_metadata.{src}')
+
+        if src == 'mat': 
+            savemat(filepath_meta, save_dict)
+        
+        elif src == 'npz': 
+            np.savez(filepath_meta, **save_dict)
         
         if self.verbose: 
-            print('write_metadata(): metadata written to {}'.format(filename))
+            print(f'write_metadata(): metadata written to {filepath_meta}')
             
             
     def write_mat(self, write_dir=None, budget_terms='default', 
@@ -677,27 +707,12 @@ class BudgetIO():
             savemat(filepath, save_arrs)
             
             # SAVE METADATA HERE: 
-            save_vars = ['input_nml'] #, 'xLine', 'yLine', 'zLine']
-            save_dict = {key: self.__dict__[key] for key in save_vars}
-            for key in ['x', 'y', 'z']: 
-                save_dict[key] = sl[key]  # copy over x,y,z from slice
-            
-            if self.associate_turbines: 
-                save_dict['turbineArray'] = self.turbineArray.todict()
-                for k in range(self.turbineArray.num_turbines): 
-                    # write turbine information
-                    save_dict['t{:d}_power'.format(k+1)] = self.read_turb_power(tidx='all', steady=False, turb=k+1)
-                    save_dict['t{:d}_uvel'.format(k+1)] = self.read_turb_uvel(tidx='all', steady=False, turb=k+1)
-                
-            filepath_meta = os.path.join(write_dir, filename + '_metadata.mat')
-            savemat(filepath_meta, save_dict)
+            self.write_metadata(write_dir, filename, 'mat', sl['x'], sl['y'], sl['z'])
             
             if self.verbose: 
                 print("write_mat(): Successfully saved the following budgets: ", list(key_subset))
                 print("at" + filepath)
-                print("write_mat(): Successfully saved metadata at" + filepath_meta)
-                print('with fields', save_dict.keys())
-        
+
             
     def read_fields(self, field_terms=None, tidx=None): 
         """
@@ -1659,12 +1674,22 @@ class BudgetIO():
         for every time ID in tidx. 
         """
         
-        if self.associate_mat: 
-            # try to read turbine power from the metadata file, may throw KeyError
-            fname = self.dir_name + os.sep + self.filename + '_metadata.mat'
-            ret = loadmat(fname) 
-            return np.squeeze(ret[f't{turb}_{prop_str}'])
-        
+        if not self.associate_padeops:  # read from saved files
+            if self.associate_mat: 
+                ext = '_metadata.mat'
+            elif self.associate_npz: 
+                ext = '_metadata.npz'
+            else: 
+                raise AttributeError('read_turb_property(): How did you get here? ')
+            
+            fname = self.dir_name + os.sep + self.filename + ext
+            tmp = loadmat(fname)  # load turbine data from saved metadata
+            try: 
+                return np.squeeze(tmp[f't{turb}_{prop_str}'])
+            except KeyError as e: 
+                raise e
+
+        # else: read from padeops: 
         prop_time = []  # power array to return
 
         if tidx is None: 
