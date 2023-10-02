@@ -22,7 +22,7 @@ class BudgetIO():
 
     def __init__(self, dir_name, verbose=False, filename=None, 
                  runid=None, normalize_origin=False, 
-                 padeops=False, npz=False, mat=False, 
+                 padeops=False, npz=False, mat=False, npy=False, 
                  read_budgets=None, 
                 ): 
         """
@@ -110,6 +110,11 @@ class BudgetIO():
 
             if self.verbose: 
                 print('Initialized BudgetIO at ' + dir_name + ' from .npz files. ')
+        
+        elif npy: 
+            self._init_npy(normalize_origin=normalize_origin)
+            if self.verbose: 
+                print('Initialized BudgetIO at ' + dir_name + ' from .npy files. ')
         
         else: 
             raise AttributeError("__init__(): ")
@@ -425,26 +430,6 @@ class BudgetIO():
                             z=np.squeeze(ret['z']), 
                             normalize_origin=normalize_origin)
 
-        # load metadata: expects a file named <filename>_metadata.npy
-        # filepath = self.dir_name + os.sep + self.filename + '_metadata.npy'
-        # try: 
-        #     self.input_nml = np.load(filepath, allow_pickle=True).item()
-        # except FileNotFoundError as e: 
-        #     raise e
-        
-        # # attempt to load turbine file - need this before loading grid
-        # if 'auxiliary' in self.input_nml.keys() and 'turbineArray' in self.input_nml['auxiliary']: 
-        #     self.turbineArray = turbineArray.TurbineArray(
-        #         init_dict=self.input_nml['auxiliary']['turbineArray']
-        #         )
-        #     self.associate_turbines = True
-        
-        # self._convenience_variables()
-        # self.associate_nml = True
-        
-        # if not self.associate_grid: 
-        #     self._load_grid(normalize_origin=normalize_origin)
-
        # check budget files
         budget_files = glob.glob(self.dir_name + os.sep + self.filename_budgets + '.npz')
         if len(budget_files) == 0: 
@@ -459,6 +444,54 @@ class BudgetIO():
             print('_init_npz(): BudgetIO initialized using .npz files.')
 
         self.associate_npz = True
+
+
+    def _init_npy(self, **kwargs): 
+        """
+        WARNING: Deprecated feature, use _init_npz() instead. 
+
+        Initializes the BudgetIO object by attempting to read .npy metadata files
+        saved from a previous BudgetIO object from write_npz(). 
+
+        Expects target files: 
+        One filename including "{filename}_budgets.npz"
+        One filename including "_metadata.npy"
+        """
+        print('_init_npy(): Warning - deprecated. Use _init_npz() instead. ')
+        
+         # load metadata: expects a file named <filename>_metadata.npy
+        filepath = self.dir_name + os.sep + self.filename + '_metadata.npy'
+        try: 
+            self.input_nml = np.load(filepath, allow_pickle=True).item()
+        except FileNotFoundError as e: 
+            raise e
+        
+       # check budget files
+        budget_files = glob.glob(self.dir_name + os.sep + self.filename_budgets + '.npz')
+        if len(budget_files) == 0: 
+            warnings.warn("No associated budget files found")
+        else: 
+            self.associate_budgets = True
+            self.budget_n = None
+            self.budget_tidx = None  
+            self.last_n = None  # all these are missing in npy files 04/24/2023
+        
+        # attempt to load turbine file - need this before loading grid
+        if 'auxiliary' in self.input_nml.keys() and 'turbineArray' in self.input_nml['auxiliary']: 
+            self.turbineArray = turbineArray.TurbineArray(
+                init_dict=self.input_nml['auxiliary']['turbineArray']
+                )
+            self.associate_turbines = True
+        
+        self._convenience_variables()
+        self.associate_nml = True
+        self.associate_npz = True
+        
+        if not self.associate_grid: 
+            self._load_grid(**kwargs)
+
+        if self.verbose: 
+            print('_init_npz(): BudgetIO initialized using .npz files.')
 
 
     def _init_mat(self, normalize_origin=False): 
@@ -1676,14 +1709,15 @@ class BudgetIO():
         
         if not self.associate_padeops:  # read from saved files
             if self.associate_mat: 
-                ext = '_metadata.mat'
+                fname = self.dir_name + os.sep + self.filename + '_metadata.mat'
+                tmp = loadmat(fname)
+
             elif self.associate_npz: 
-                ext = '_metadata.npz'
+                fname = self.dir_name + os.sep + self.filename + '_metadata.npz'
+                tmp = np.load(fname)
             else: 
                 raise AttributeError('read_turb_property(): How did you get here? ')
             
-            fname = self.dir_name + os.sep + self.filename + ext
-            tmp = loadmat(fname)  # load turbine data from saved metadata
             try: 
                 return np.squeeze(tmp[f't{turb}_{prop_str}'])
             except KeyError as e: 
