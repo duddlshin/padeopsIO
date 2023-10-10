@@ -289,14 +289,16 @@ def get_xids(x=None, y=None, z=None,
     for s, s_ax in zip([x, y, z], [x_ax, y_ax, z_ax]): 
         if s is not None: 
             if s_ax is None: 
-                raise AttributeError('Axis keyword not providede')
+                raise AttributeError('Axis keyword not provided')
                 
             if hasattr(s, '__iter__'): 
                 xids = [np.argmin(np.abs(s_ax-xval)) for xval in s]
             else: 
                 xids = np.argmin(np.abs(s_ax-s))
 
-            if return_slice:  # append slices to the return tuple
+            xids = np.squeeze(np.unique(xids))
+
+            if return_slice and xids.ndim > 0:  # append slices to the return tuple
                 ret = ret + (slice(np.min(xids), np.max(xids)+1), )
 
             else:  # append index list to the return tuple

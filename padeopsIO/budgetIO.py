@@ -100,13 +100,13 @@ class BudgetIO():
                 raise
         
         elif mat:  # .mat save files
-            self._init_mat(normalize_origin=normalize_origin)
+            self._init_mat()
 
             if self.verbose: 
                 print('Initialized BudgetIO at ' + dir_name + ' from .mat files. ')
 
         elif npz:  # .npz save files
-            self._init_npz(normalize_origin=normalize_origin)
+            self._init_npz()
 
             if self.verbose: 
                 print('Initialized BudgetIO at ' + dir_name + ' from .npz files. ')
@@ -318,7 +318,7 @@ class BudgetIO():
         self.galpha = key_search_r(self.input_nml, 'g_alpha')
 
     
-    def _load_grid(self, x=None, y=None, z=None, normalize_origin=None): 
+    def _load_grid(self, x=None, y=None, z=None, origin=(0, 0, 0), normalize_origin=None): 
         """
         Creates dx, dy, dz, and xLine, yLine, zLine variables. 
         
@@ -357,12 +357,12 @@ class BudgetIO():
             # staggered in z
             self.zLine = np.linspace(self.dz/2,self.Lz-(self.dz/2),self.nz)
         
-        self.origin = (0, 0, 0)  # default origin location
+        self.origin = origin  # default origin location
 
         self.associate_grid = True
 
-        if normalize_origin: 
-            if normalize_origin in ['turb', 'turbine'] and self.associate_turbines: 
+        if normalize_origin:  # not None or False
+            if str(normalize_origin) in ['turb', 'turbine'] and self.associate_turbines: 
                 self.turbineArray.set_sort('xloc', sort=True)
                 self.normalize_origin(self.turbineArray.turbines[0].pos)
             
@@ -421,8 +421,9 @@ class BudgetIO():
             self.turbineArray = turbineArray.TurbineArray(init_ls=init_ls)
             self.associate_turbines = True
 
+        origin = (0, 0, 0)
         if 'origin' in ret.files: 
-            self.origin = ret['origin']
+            origin = ret['origin']
 
         # set convenience variables: 
         self._convenience_variables()
@@ -432,6 +433,7 @@ class BudgetIO():
             self._load_grid(x=np.squeeze(ret['x']), 
                             y=np.squeeze(ret['y']), 
                             z=np.squeeze(ret['z']), 
+                            origin=origin, 
                             normalize_origin=normalize_origin)
 
        # check budget files
@@ -524,6 +526,10 @@ class BudgetIO():
             self.turbineArray = turbineArray.TurbineArray(init_ls=init_ls)
             self.associate_turbines = True
 
+        origin = (0, 0, 0)
+        if 'origin' in ret.keys(): 
+            origin = ret['origin']
+
         # set convenience variables: 
         self._convenience_variables()
         self.associate_nml = True
@@ -532,6 +538,7 @@ class BudgetIO():
             self._load_grid(x=np.squeeze(ret['x']), 
                             y=np.squeeze(ret['y']), 
                             z=np.squeeze(ret['z']), 
+                            origin=origin, 
                             normalize_origin=normalize_origin)
 
         # link budgets
@@ -1179,7 +1186,7 @@ class BudgetIO():
             xid, yid, zid = self.get_xids(x=xlim, y=ylim, z=zlim, return_none=True, return_slice=True)
             xLine = self.xLine
             yLine = self.yLine
-            zLine = self.zLine  # TODO fix for non-slices
+            zLine = self.zLine
         else: 
             xid, yid, zid = self.get_xids(x=xlim, y=ylim, z=zlim, 
                                           x_ax=sl['x'], y_ax=sl['y'], z_ax=sl['z'], 
@@ -1239,7 +1246,7 @@ class BudgetIO():
         # build and save the extents, either in 1D, 2D, or 3D
         ext = []
         for term in ['x', 'y', 'z']: 
-            if len(slices[term]) > 1:  # if this is actually a slice (not a number), then add it to the extents
+            if slices[term].ndim > 0:  # if this is actually a slice (not a number), then add it to the extents
                 ext += [np.min(slices[term]), np.max(slices[term])]
         
         if round_extent: 

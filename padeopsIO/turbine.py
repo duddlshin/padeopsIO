@@ -223,7 +223,7 @@ class Turbine():
             # get control points: 
             xcs, ycs, zcs = self._get_ctrl_pts(x, y, z)  
             
-            C1 = (6/np.pi/fwidth**2)**(1.5)  # normalizing constant
+            C1 = (6 / np.pi / fwidth**2)**(1.5)  # normalizing constant
 
             kernel = np.zeros((len(x), len(y), len(z)))
             
@@ -245,7 +245,7 @@ class Turbine():
 
             # built the kernel with the Greens function (can be slow!): 
             for xc, yc, zc in zip(xcs, ycs, zcs): 
-                kernel[xids, yids, zids] += C1*np.exp(-6./fwidth**2 * ((X-xc)**2 + (Y-yc)**2 + (Z-zc)**2))
+                kernel[xids, yids, zids] += C1*np.exp(-6. / fwidth**2 * ((X-xc)**2 + (Y-yc)**2 + (Z-zc)**2))
 
             kernel[kernel < 1e-10] = 0  # set these identically to zero, mirroring PadeOps implementation
             
