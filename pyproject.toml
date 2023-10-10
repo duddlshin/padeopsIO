@@ -4,6 +4,7 @@ version = "0.1.0"
 description = ""
 authors = ["Kirby <kirby.heck@gmail.com>"]
 license = "MIT"
+packages = [{ include = "padeopsIO" }]
 
 [tool.poetry.dependencies]
 python = ">=3.7"
