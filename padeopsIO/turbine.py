@@ -1,7 +1,11 @@
+"""
+Turbine object and related functions for actuator disk models. 
+
+Kirby Heck
+2023 Oct 10
+"""
+
 import numpy as np
-import os
-import re
-import glob
 
 from padeopsIO.io_utils import key_search_r
 from padeopsIO.wake_utils import get_xids
@@ -10,19 +14,28 @@ from padeopsIO.wake_utils import get_xids
 def get_correction(CT, fwidth, D): 
     """
     Computes the correction factor M as defined by Taylor expansion of Shapiro, et al. (2019)
-
-    Parameters
-    ----------
-    return_correction (bool) : Optional, returns correction factor if True. Default: False
     """
 
     M = 1/(1. + CT/2. * fwidth/np.sqrt(3*np.pi)/D)
     return M
 
 
-def get_REWS(ufield, kernel, M): 
+def get_REWS(ufield, kernel, M=1.): 
     """
-    Computes the rotor equivalent wind speed
+    Computes the rotor equivalent wind speed. 
+
+    Arguments
+    ---------
+    ufield : (Nx, Ny, Nz)
+        Array of wind speed values normal to the disk
+    kernel : (Nx, Ny, Nz)
+        ADM kernel which sums to 1
+    M : float, optional
+        Correction factor, defaults to 1. 
+
+    Returns
+    -------
+    float
     """
     return np.sum(ufield*kernel)*M
 
@@ -31,10 +44,16 @@ def get_power(ud, D=1, rho=1, cpp=2):
     """
     Computes turbine power
     
-    ud : disk velocity
-    D : rotor diameter
-    rho : air density
-    cpp : C_P' (local power) = P/(0.5*rho*D*u_d^3)
+    Arguments
+    ---------
+    ud : float
+        disk velocity
+    D : float, optional
+        Rotor diameter, defaults to 1. 
+    rho : float, optional 
+        Air density, defaults to 1.
+    cpp : float, optional
+        C_P' (local power) = P/(0.5*rho*D*u_d^3). Defaults to 2. 
     """
     
     return 0.5*rho*D**2/4*np.pi*cpp*ud**3
@@ -88,8 +107,14 @@ class Turbine():
         # turbine number; not included in the input file 
         self.n = n
         
+        # set position
+        self.pos = (self.xloc, self.yloc, self.zloc)
+        
     
     def set_sort(self, sort): 
+        """
+        Sets the sorting variable to string `sort`
+        """
         if sort in self.__dict__: 
             self.sort_by = sort
         else: 
@@ -102,7 +127,8 @@ class Turbine():
         
         Parameters
         ----------
-        return_correction (bool) : Optional, returns correction factor if True. Default: False
+        return_correction : bool, optional
+            Returns correction factor if True. Default: False
         """
         fwidth = key_search_r(self.input_nml, 'filterwidth')
         use_corr = key_search_r(self.input_nml, 'usecorrection')
@@ -158,16 +184,28 @@ class Turbine():
         
         Parameters
         ----------
-        xLine, yLine, zLine (array-like) : 1D arrays of coordinate axes
-        ADM_type (int) : integer for the ADM type, consistent with igrid in PadeOps. 
+        xLine, yLine, zLine : array
+            1D arrays of coordinate axes
+        ADM_type : int
+            integer for the ADM type, consistent with igrid in PadeOps. 
             Default is 5 (Shapiro, et al. (2019))
-        fwidth (float) : filter width (smoothing kernel factor)
-        buff_fact (float) : grid partition factor 
-        return_kernel (bool) : returns the 3D forcing kernel if True. Default: False
+        fwidth : float
+            Filter width (smoothing kernel factor)
+        buff_fact : float, optional
+            Grid partition factor. Defaults to 3. 
+        return_kernel : bool, optional 
+            returns the 3D forcing kernel if True. 
+            Default False, saves array to self.kernel
+        normalize : bool, optional
+            If True, then the kernel will integrate to one. Otherwise, 
+            the kernel sums to one. Default is False. 
+        overwrite : bool, optional
+            Overwrites the current kernel, if one exists. Default False. 
             
         Returns
         -------
-        kernel (nx * ny * nz) : forcing kernel, only if return_kernel=True
+        array (Nx, Ny, Nz)
+            forcing kernel, only if return_kernel=True
         """
         
         if self.kernel is not None and not overwrite: 
@@ -187,7 +225,7 @@ class Turbine():
             # get control points: 
             xcs, ycs, zcs = self._get_ctrl_pts(x, y, z)  
             
-            C1 = (6/np.pi/fwidth**2)**(1.5)  # normalizing constant
+            C1 = (6 / np.pi / fwidth**2)**(1.5)  # normalizing constant
 
             kernel = np.zeros((len(x), len(y), len(z)))
             
@@ -209,7 +247,7 @@ class Turbine():
 
             # built the kernel with the Greens function (can be slow!): 
             for xc, yc, zc in zip(xcs, ycs, zcs): 
-                kernel[xids, yids, zids] += C1*np.exp(-6./fwidth**2 * ((X-xc)**2 + (Y-yc)**2 + (Z-zc)**2))
+                kernel[xids, yids, zids] += C1*np.exp(-6. / fwidth**2 * ((X-xc)**2 + (Y-yc)**2 + (Z-zc)**2))
 
             kernel[kernel < 1e-10] = 0  # set these identically to zero, mirroring PadeOps implementation
             
@@ -234,9 +272,15 @@ class Turbine():
     
     def _get_ctrl_pts(self, x, y, z): 
         """
-        Helper function to the 3D integration of get_kernel for an unyawed, untilted ADM Type 5 (Assumes
-        the disk normal vector is in the x-direction). 
-        Control points are centered at the ADM location and spaced equally to the grid spacing. 
+        Helper function to the 3D integration of get_kernel. 
+        
+        Initially, control points are selected for an unyawed, 
+        untilted ADM Type 5 (Assumes the disk normal vector is in 
+        the x-direction). Then, _rotate_ctrl_points() is called to 
+        rotate control points accordingly with yaw and tilt. 
+
+        Control points are centered at the ADM location and spaced equally
+        to the grid spacing. 
         """
         dx = x[1]-x[0]
         dy = y[1]-y[0]
@@ -261,7 +305,7 @@ class Turbine():
         
         xc, yc, zc = self._rotate_ctrl_pts(xctrl, yctrl, zctrl)
         
-        return xc, yc, zc  # xctrl, yctrl, zctrl
+        return xc, yc, zc 
     
     
     def _rotate_ctrl_pts(self, xc, yc, zc): 
@@ -294,7 +338,7 @@ class Turbine():
         """
         if self.sort_by == 'xloc': 
             if self.xloc == other.xloc: 
-                return self.yloc < other.yloc  # tie-breaker
+                return self.yloc < other.yloc  # tie-breake
             else: 
                 return self.xloc < other.xloc
             
@@ -304,6 +348,4 @@ class Turbine():
     
     def __str__(self): 
         return "Turbine object at x={:.3f}, y={:.3f}, z={:.3f}".format(self.xloc, self.yloc, self.zloc)
-            
-        
-        
+

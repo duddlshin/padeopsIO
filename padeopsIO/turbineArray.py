@@ -1,12 +1,4 @@
 import os
-import warnings
-
-# try: 
-#     import f90nml
-# except ImportError: 
-#     warnings.warn("Could not find package f90nml in system path. ")
-#     # TODO - handle this somehow
-#     f90nml = None
 
 from padeopsIO.turbine import Turbine
 from padeopsIO.nml_utils import parser
@@ -17,18 +9,25 @@ class TurbineArray():
     """
     
     def __init__(self, turb_dir=None, num_turbines=None, 
-                 init_ls=[], init_dict=None, 
-                 ADM_type=None, verbose=False, sort='xloc'): 
+                 init_ls=None, init_dict=None, 
+                 ADM_type=5, verbose=False, sort='xloc'): 
         """
         Constructor function for a TurbineArray class
         
         Parameters
         ----------
-        turb_dir (path-like) : path to a turbine array directory in PadeOps
-        num_turbines (int) : optional, number of turbines. Default: number 
-            of turbine files in turbine directory
-        ADM_type (int) : ADM type. Default: 2. 
-        verbose (bool) : additional print statements
+        turb_dir : path
+            Path to a turbine array directory in PadeOps
+        num_turbines : int, optional
+            Number of turbines. Default: number of turbine files in turbine directory
+        init_ls : list, optional
+            List of initialization (namelist) files. Default []
+        init_dict : dict, optional
+            Dictionary from self.todict(). Bypasses `turb_dir` if not None. 
+        ADM_type : int, optional
+            ADM type. Default: 5. 
+        verbose : bool, optional
+            additional print statements
         
         Returns
         -------
@@ -38,6 +37,7 @@ class TurbineArray():
         # this initializes from a dictionary output by todict()
         self.verbose = verbose
         self._sort_by = sort
+        self.ADM_type = ADM_type
         if init_dict is not None: 
             self.fromdict(init_dict)
 
@@ -45,11 +45,12 @@ class TurbineArray():
                 print("TurbineArray: Initialized from", turb_dir)
             return
         
-        self.turb_dir = turb_dir
+        if init_ls is None: 
+            init_ls = []
                 
         if turb_dir is not None: 
+            print('DEBUG: turbine dir is not None')
             # glean namelist inputs from the turbine directory
-
             if len(init_ls) == 0: 
                 # begin reading in turbines
                 filenames = os.listdir(turb_dir)
@@ -62,15 +63,17 @@ class TurbineArray():
                     init_ls.append(turb_nml)
             elif self.verbose: 
                 print('__init__(): `turb_dir` superceded by `init_ls` kwarg.')
+        else: 
+            turb_dir = ''  # troubles with saving Nonetype in scipy.io.savemat
+        self.turb_dir = turb_dir
 
+        # set number of turbines
         if num_turbines is not None: 
             self.num_turbines = num_turbines
             
-            if num_turbines != len(init_ls):  
-                warnings.warn("Not all turbines in the specified directory will be used")
-
-                if self.verbose: 
-                    print("\tRequested {:d} turbines, but found {:d} files.".format(num_turbines, len(init_ls)))
+            if num_turbines != len(init_ls) and self.verbose:  
+                print("\tRequested {:d} turbines, but found {:d} files.".format(num_turbines, len(init_ls)))
+                print("\tNot all turbines in the specified directory will be used")
         else: 
             self.num_turbines = len(init_ls)
             
@@ -82,11 +85,11 @@ class TurbineArray():
             if i >= self.num_turbines: 
                 break  # only read in up to num_turbines turbines
                 
-            self.array.append(turb_nml)
+            self.array.append(turb_nml)  # deprecate this
             self.turbines.append(Turbine(turb_nml, verbose=self.verbose, n=i+1, sort=self._sort_by))
             
             if self.verbose: 
-                print("\tTurbineArray: added turbine to array form file", filename)
+                print("\tTurbineArray: added turbine to array")
                 
         # sort the turbine array: 
         self.sort()
@@ -108,6 +111,10 @@ class TurbineArray():
         Sorts the `turbines` property according to self._sort_by. 
         
         NOTE: This does not rearrange the `array` property, which is deprecated. 
+
+        Parameters
+        ----------
+        reverse : bool, optional
         """
         self.turbines.sort(reverse=reverse)
         
@@ -117,6 +124,18 @@ class TurbineArray():
         Sets the sorting field for all turbines in the array. 
         
         Sorts the array if sort=True (default True)
+
+        Parameters
+        ----------
+        sort_by : string
+            Turbine variable to sort array by
+        sort : bool
+            calls self.sort() if true
+        reverse : bool
+
+        Returns
+        -------
+        None
         """
         
         for turbine in self.turbines: 
@@ -128,9 +147,7 @@ class TurbineArray():
         
         
     def __iter__(self): 
-        """
-        Iterates through the turbine list. 
-        """
+        """Returns an iterator for the turbine list."""
         return self.turbines.__iter__()
         
     
@@ -153,11 +170,8 @@ class TurbineArray():
     
     
     def __str__(self): 
-        """
-        Overrides the default object print statement. 
-        """
+        """Overrides the default object print statement."""
         return "Turbine array object at {:s} with {:d} turbines".format(self.turb_dir, self.num_turbines)
-        
         
 
 if __name__ == "__main__": 

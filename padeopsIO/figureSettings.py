@@ -1,10 +1,9 @@
 #!/usr/bin/python
 
-# Copyright Hannah Johlas, 2019
+# Hannah Johlas, 2019
 # Revised Kirby Heck, 2023
 
 import matplotlib
-import matplotlib.pyplot as plt
 
 # Plot formatting
 # matplotlib.rcParams['figure.figsize']     = [16.0/2.54, 6.0/2.54]               # figure dimensions, in inches

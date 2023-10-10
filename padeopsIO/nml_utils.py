@@ -1,3 +1,16 @@
+"""
+Namelist utilities for reading and writing Fortran90 namelists. 
+
+Note: All namelists are read in lowercase and written to lowercase! This is 
+done because Python is case-sensitive but Fortran is not. 
+# TODO: Fix this to retain case in the future
+
+Note 2: Comments are not saved when reading namelists. 
+
+Kirby Heck
+2023 Oct 10
+"""
+
 import re
 
 
@@ -6,6 +19,13 @@ def read(*args, **kwargs):
     Alias for parser. See parser()
     """
     return parser(*args, **kwargs)
+
+
+def write(*args, **kwargs): 
+    """
+    Aslias for writer. See writer()
+    """
+    return writer(*args, **kwargs)
 
 
 def parser(filename, to_lowercase=True): 
@@ -166,5 +186,5 @@ def cast_to_str(value):
         tmp = float(value)
         return '{:.08e}'.format(tmp)
     except ValueError: 
-        return f'"value"'  # return the original string, in double quotes
+        return f'"{value}"'  # return the original string, in double quotes
 
