@@ -15,7 +15,7 @@ The `pyproject.toml` file lists the requirement Python >3.7, but if this causes 
 
 Clone the repo from GitHub. This can be done with: 
 ```
-pip install git+https://github.com/kirbyh/PadeOpsIO.git
+pip install git+https://github.com/kirbyh/padeopsIO.git
 ```
 
 Alternatively, for developers, clone the git repository locally and install it with editing enabled (requires `pip` 22+): 
@@ -24,7 +24,7 @@ Alternatively, for developers, clone the git repository locally and install it w
 cd $install_dir
 
 # clone the repo
-git clone -b main https://github.com/kirbyh/PadeOpsIO.git
+git clone -b main https://github.com/kirbyh/padeopsIO.git
 
 # then add with pip
 pip install -e padeopsIO
