@@ -1,6 +1,6 @@
 # PadeOpsIO Overview
 
-PadeOpsIO is a tool for loading, visualizing, and analyzing data from [PadeOps](https://github.com/FPAL-Stanford-University/PadeOps), an LES and DNS box code. 
+PadeOpsIO is a tool for loading, visualizing, and analyzing data from [PadeOps](https://github.com/Howland-Lab/PadeOps), an LES and DNS box code. 
 
 ## Dependencies
 
@@ -27,7 +27,7 @@ cd $install_dir
 git clone -b main https://github.com/kirbyh/PadeOpsIO.git
 
 # then add with pip
-pip install . -e
+pip install -e padeopsIO
 ```
 
 The module can be imported into a Python script with: 

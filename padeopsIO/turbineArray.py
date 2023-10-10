@@ -1,5 +1,4 @@
 import os
-import warnings
 
 from padeopsIO.turbine import Turbine
 from padeopsIO.nml_utils import parser
@@ -67,7 +66,6 @@ class TurbineArray():
         else: 
             turb_dir = ''  # troubles with saving Nonetype in scipy.io.savemat
         self.turb_dir = turb_dir
-            
 
         # set number of turbines
         if num_turbines is not None: 

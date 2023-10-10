@@ -6,9 +6,6 @@ Kirby Heck
 """
 
 import numpy as np
-import os
-import re
-import glob
 
 from padeopsIO.io_utils import key_search_r
 from padeopsIO.wake_utils import get_xids
@@ -193,12 +190,17 @@ class Turbine():
             integer for the ADM type, consistent with igrid in PadeOps. 
             Default is 5 (Shapiro, et al. (2019))
         fwidth : float
-            filter width (smoothing kernel factor)
-        buff_fact : float
-            grid partition factor 
-        return_kernel : bool
+            Filter width (smoothing kernel factor)
+        buff_fact : float, optional
+            Grid partition factor. Defaults to 3. 
+        return_kernel : bool, optional 
             returns the 3D forcing kernel if True. 
             Default False, saves array to self.kernel
+        normalize : bool, optional
+            If True, then the kernel will integrate to one. Otherwise, 
+            the kernel sums to one. Default is False. 
+        overwrite : bool, optional
+            Overwrites the current kernel, if one exists. Default False. 
             
         Returns
         -------
