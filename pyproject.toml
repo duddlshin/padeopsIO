@@ -8,6 +8,9 @@ packages = [{ include = "padeopsIO" }]
 
 [tool.poetry.dependencies]
 python = ">=3.7"
+numpy = ">=1.16.5, <1.23.0"
+scipy = ">=1.6, <1.7.3"
+matplotlib = "^3.4"
 
 [tool.poetry.dev-dependencies]
 
