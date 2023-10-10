@@ -153,6 +153,10 @@ class BudgetIO():
                 print('_init_padeops(): Initializing wind turbine array object')
                 
             turb_dir = self.input_nml['windturbines']['turbinfodir']
+            if not os.path.exists(turb_dir):  # switch this to pathlib
+                # hotfix: maybe this folder was copied elsewhere
+                turb_dir = os.path.join(self.dir_name, 'turb')
+                
             num_turbines = self.input_nml['windturbines']['num_turbines']
             ADM_type = self.input_nml['windturbines']['adm_type']
             try: 

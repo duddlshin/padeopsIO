@@ -1,3 +1,16 @@
+"""
+Namelist utilities for reading and writing Fortran90 namelists. 
+
+Note: All namelists are read in lowercase and written to lowercase! This is 
+done because Python is case-sensitive but Fortran is not. 
+# TODO: Fix this to retain case in the future
+
+Note 2: Comments are not saved when reading namelists. 
+
+Kirby Heck
+2023 Oct 10
+"""
+
 import re
 
 

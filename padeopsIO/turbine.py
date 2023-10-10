@@ -1,3 +1,10 @@
+"""
+Turbine object and related functions for actuator disk models. 
+
+Kirby Heck
+2023 Oct 10
+"""
+
 import numpy as np
 import os
 import re
@@ -10,19 +17,28 @@ from padeopsIO.wake_utils import get_xids
 def get_correction(CT, fwidth, D): 
     """
     Computes the correction factor M as defined by Taylor expansion of Shapiro, et al. (2019)
-
-    Parameters
-    ----------
-    return_correction (bool) : Optional, returns correction factor if True. Default: False
     """
 
     M = 1/(1. + CT/2. * fwidth/np.sqrt(3*np.pi)/D)
     return M
 
 
-def get_REWS(ufield, kernel, M): 
+def get_REWS(ufield, kernel, M=1.): 
     """
-    Computes the rotor equivalent wind speed
+    Computes the rotor equivalent wind speed. 
+
+    Arguments
+    ---------
+    ufield : (Nx, Ny, Nz)
+        Array of wind speed values normal to the disk
+    kernel : (Nx, Ny, Nz)
+        ADM kernel which sums to 1
+    M : float, optional
+        Correction factor, defaults to 1. 
+
+    Returns
+    -------
+    float
     """
     return np.sum(ufield*kernel)*M
 
@@ -31,10 +47,16 @@ def get_power(ud, D=1, rho=1, cpp=2):
     """
     Computes turbine power
     
-    ud : disk velocity
-    D : rotor diameter
-    rho : air density
-    cpp : C_P' (local power) = P/(0.5*rho*D*u_d^3)
+    Arguments
+    ---------
+    ud : float
+        disk velocity
+    D : float, optional
+        Rotor diameter, defaults to 1. 
+    rho : float, optional 
+        Air density, defaults to 1.
+    cpp : float, optional
+        C_P' (local power) = P/(0.5*rho*D*u_d^3). Defaults to 2. 
     """
     
     return 0.5*rho*D**2/4*np.pi*cpp*ud**3
@@ -248,9 +270,15 @@ class Turbine():
     
     def _get_ctrl_pts(self, x, y, z): 
         """
-        Helper function to the 3D integration of get_kernel for an unyawed, 
-        untilted ADM Type 5 (Assumes the disk normal vector is in the x-direction). 
-        Control points are centered at the ADM location and spaced equally to the grid spacing. 
+        Helper function to the 3D integration of get_kernel. 
+        
+        Initially, control points are selected for an unyawed, 
+        untilted ADM Type 5 (Assumes the disk normal vector is in 
+        the x-direction). Then, _rotate_ctrl_points() is called to 
+        rotate control points accordingly with yaw and tilt. 
+
+        Control points are centered at the ADM location and spaced equally
+        to the grid spacing. 
         """
         dx = x[1]-x[0]
         dy = y[1]-y[0]
@@ -275,7 +303,7 @@ class Turbine():
         
         xc, yc, zc = self._rotate_ctrl_pts(xctrl, yctrl, zctrl)
         
-        return xc, yc, zc  # xctrl, yctrl, zctrl
+        return xc, yc, zc 
     
     
     def _rotate_ctrl_pts(self, xc, yc, zc): 
@@ -308,7 +336,7 @@ class Turbine():
         """
         if self.sort_by == 'xloc': 
             if self.xloc == other.xloc: 
-                return self.yloc < other.yloc  # tie-breaker
+                return self.yloc < other.yloc  # tie-breake
             else: 
                 return self.xloc < other.xloc
             
@@ -318,6 +346,4 @@ class Turbine():
     
     def __str__(self): 
         return "Turbine object at x={:.3f}, y={:.3f}, z={:.3f}".format(self.xloc, self.yloc, self.zloc)
-            
-        
-        
+

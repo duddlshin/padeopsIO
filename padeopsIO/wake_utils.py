@@ -3,11 +3,8 @@
 # USAGE: from wake_utils import *
 
 import numpy as np
-import csv
-import os
 import padeopsIO
 from numpy.linalg import lstsq
-from scipy.optimize import curve_fit
 
 
 def wake_centroid_2d(u_hub=None, u_wake_hub=None, y=None, thresh=0): 

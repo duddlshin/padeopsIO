@@ -38,6 +38,7 @@ class TurbineArray():
         # this initializes from a dictionary output by todict()
         self.verbose = verbose
         self._sort_by = sort
+        self.ADM_type = ADM_type
         if init_dict is not None: 
             self.fromdict(init_dict)
 
