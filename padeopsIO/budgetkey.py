@@ -151,12 +151,12 @@ def key_labels():
         'wT': "$\\overline{T'w'}$", 
         'TT': "$\\overline{T'T'}$", 
         # BUDGET 1 TERMS: (momentum)
-        'DuDt': "$Du/Dt$",  # x-advection
-        'dpdx': "$\\partial p/\\partial x$",  # x-pressure gradient
+        'DuDt': "$-Du/Dt$",  # x-advection
+        'dpdx': "$-\\partial p/\\partial x$",  # x-pressure gradient
         'xSGS': "$x$-SGS",  # x-sub grid stresses
         'xAD': "AD$_x$",   # x-Actuator disk
-        'DvDt': "$Dv/Dt$",  
-        'dpdy': "$\\partial p/\\partial y$", 
+        'DvDt': "$-Dv/Dt$",  
+        'dpdy': "$-\\partial p/\\partial y$", 
         'ySGS': "$y$-SGS", 
         'DwDt': "$Dw/Dt$", 
         'dpdz': "$\\partial p/\\partial z$", 
@@ -192,9 +192,9 @@ def key_labels():
         'vwake': "$\\Delta v_{wake}$",
         'wwake': "$\\Delta w_{wake}$", 
         # SPATIAL COORDINATES
-        'x': "$x/D$", 
-        'y': "$y/D$", 
-        'z': "$z/D$", 
+        'x': "$x/D$ (-)", 
+        'y': "$y/D$ (-)", 
+        'z': "$z/D$ (-)", 
         't': "$t$"
         # RANS BUDGETS - TODO
 #         'ududx': '$\\bar{u}
