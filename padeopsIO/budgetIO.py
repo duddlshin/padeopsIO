@@ -943,7 +943,7 @@ class BudgetIO():
             self.budget[key] = temp.reshape((self.nx,self.ny,self.nz), order='F')  # reshape into a 3D array
 
         if self.verbose and len(key_subset) > 0: 
-            print('PadeOpsViz loaded the budget fields at TIDX:' + '{:.06f}'.format(tidx))
+            print('BudgetIO loaded the budget fields at TIDX:' + '{:.06f}'.format(tidx))
 
 
     def _read_budgets_npz(self, key_subset, mmap=None): 
@@ -957,7 +957,7 @@ class BudgetIO():
             self.budget[key] = npz[key]  
 
         if self.verbose: 
-            print('PadeOpsViz loaded the following budgets from .npz: ', list(key_subset.keys()))
+            print('BudgetIO loaded the following budgets from .npz: ', list(key_subset.keys()))
 
 
     def _read_budgets_mat(self, key_subset): 
@@ -970,7 +970,7 @@ class BudgetIO():
             self.budget[key] = budgets[key]  
 
         if self.verbose: 
-            print('PadeOpsViz loaded the following budgets from .mat: ', list(key_subset.keys()))
+            print('BudgetIO loaded the following budgets from .mat: ', list(key_subset.keys()))
 
 
     def _parse_budget_terms(self, budget_terms, include_wakes=False): 
