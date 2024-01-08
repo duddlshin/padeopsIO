@@ -145,6 +145,9 @@ def get_timekey(self, budget=False):
 def structure_to_dict(arr): 
     """
     Function to convert a numpy structured array to a nested dictionary. 
+    
+    Numpy structured arrays are the form in which scipy.io.savemat saves .mat files
+    and also how scipy.io.loadmat loads .mat files. 
 
     See also: 
     https://docs.scipy.org/doc/numpy-1.14.0/user/basics.rec.html
@@ -167,5 +170,4 @@ def structure_to_dict(arr):
             else: 
                 ret[key] = [item for item in val.flat]  # store the key/value pairing
 
-        
     return ret  # return (nested) dict

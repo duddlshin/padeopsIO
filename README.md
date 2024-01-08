@@ -1,6 +1,6 @@
 # PadeOpsIO Overview
 
-PadeOpsIO is a tool for loading, visualizing, and analyzing data from [PadeOps](https://github.com/FPAL-Stanford-University/PadeOps), an LES and DNS box code. 
+PadeOpsIO is a tool for loading, visualizing, and analyzing data from [PadéOps](https://github.com/Howland-Lab/PadeOps), an LES and DNS box code. 
 
 ## Dependencies
 
@@ -15,19 +15,20 @@ The `pyproject.toml` file lists the requirement Python >3.7, but if this causes 
 
 Clone the repo from GitHub. This can be done with: 
 ```
-pip install git+https://github.com/kirbyh/PadeOpsIO.git
+pip install git+https://github.com/kirbyh/padeopsIO.git
 ```
 
-Alternatively, for developers, clone the git repository locally and install it with editing enabled: 
+Alternatively, for developers, clone the git repository locally and install it with editing enabled (requires `pip` 22+): 
 ```
 # navigate to the installation directory
 cd $install_dir
 
 # clone the repo
-git clone -b main https://github.com/kirbyh/PadeOpsIO.git
+git clone -b main https://github.com/kirbyh/padeopsIO.git
 
 # then add with pip
-pip install . -e
+pip install -e padeopsIO
+
 ```
 
 The module can be imported into a Python script with: 
@@ -37,7 +38,7 @@ import padeopsIO as pio
 
 ## Usage
 
-PadeOpsIO is used for visualization of and analysis for output data from PadeOps. For more, see the [quick start](https://github.com/kirbyh/PadeOpsIO/blob/main/padeopsIO/padeopsIO_quickstart.ipynb). 
+PadeOpsIO is used for visualization and analysis for output data from PadéOps. For more, see the [quick start](https://github.com/kirbyh/PadeOpsIO/blob/main/padeopsIO/padeopsIO_quickstart.ipynb). 
 
 Data can be instanteous data: 
 

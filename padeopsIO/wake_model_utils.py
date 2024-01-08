@@ -10,8 +10,7 @@ from scipy import optimize
 from padeopsIO import ActuatorDisk
 
 
-# ===================== WAKE FITTING ==========================
-
+# ===================== WAKE FITTING ========================= 
 
 
 def gaussian_wake(r, sigma, u0, r0): 

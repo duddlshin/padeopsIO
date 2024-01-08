@@ -1,5 +1,4 @@
 import os
-import warnings
 
 from padeopsIO.turbine import Turbine
 from padeopsIO.nml_utils import parser
@@ -38,6 +37,7 @@ class TurbineArray():
         # this initializes from a dictionary output by todict()
         self.verbose = verbose
         self._sort_by = sort
+        self.ADM_type = ADM_type
         if init_dict is not None: 
             self.fromdict(init_dict)
 
@@ -65,7 +65,6 @@ class TurbineArray():
         else: 
             turb_dir = ''  # troubles with saving Nonetype in scipy.io.savemat
         self.turb_dir = turb_dir
-            
 
         # set number of turbines
         if num_turbines is not None: 
