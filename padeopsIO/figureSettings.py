@@ -14,8 +14,8 @@ matplotlib.rcParams['savefig.pad_inches'] = 0.10                                
 matplotlib.rcParams['savefig.bbox']       = 'tight'                           # remove extra whitespace = 'tight'
 matplotlib.rcParams['lines.linewidth']    = 1.0
 matplotlib.rcParams['legend.numpoints']   = 1
-matplotlib.rcParams['legend.handlelength']  = 1.0
-matplotlib.rcParams['legend.handletextpad'] = 0.2
+matplotlib.rcParams['legend.handlelength']  = 1.5
+matplotlib.rcParams['legend.handletextpad'] = 0.8
 matplotlib.rcParams['legend.columnspacing'] = 1.0
 matplotlib.rcParams['legend.borderpad']   = 0.3
 matplotlib.rcParams['lines.markersize']   = 2
