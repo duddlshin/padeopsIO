@@ -22,7 +22,7 @@ def gaussian_wake(r, sigma, u0, r0):
     return u0 * np.exp(-(r-r0)**2 / (2*sigma**2))
 
 
-def gaussian_wake_fit_con(y, wake, p0, u0=None, y0=None): 
+def gaussian_wake_fit_con(y, wake, p0=0.5, u0=None, y0=None): 
     """
     Curve fits a 1D gaussian wake with constrained (fixed) y0, u0
     
@@ -32,8 +32,8 @@ def gaussian_wake_fit_con(y, wake, p0, u0=None, y0=None):
         y-axis along hub plane
     wake : 1d array
         wake deficit u_inf-u(x=x',y,z=zhub) along the given y-axis
-    p0 : float
-        initial guess for sigma(x)
+    p0 : float, optional
+        initial guess for sigma(x). Defaults to 0.5. 
     u0 : float, optional
         maximum wake deficit. If None, then this is computed as max(wake). 
     y0 : float, optional
@@ -54,7 +54,7 @@ def gaussian_wake_fit_con(y, wake, p0, u0=None, y0=None):
         y0 = y[yid]
     
     def _gaussian_wake(y, sigma): 
-        return u0 * np.exp(-(y-y0)**2 / (2*sigma**2))
+        return gaussian_wake(y, sigma, u0, y0)  #u0 * np.exp(-(y-y0)**2 / (2*sigma**2))
     
     ret = curve_fit(_gaussian_wake, y, wake, p0)
     return ret[0]
