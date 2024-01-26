@@ -38,7 +38,7 @@ import padeopsIO as pio
 
 ## Usage
 
-PadeOpsIO is used for visualization and analysis for output data from PadéOps. For more, see the [quick start](https://github.com/kirbyh/PadeOpsIO/blob/main/padeopsIO/padeopsIO_quickstart.ipynb). 
+PadeOpsIO is used for visualization and analysis for output data from PadéOps. For more, see the [quick start](https://github.com/kirbyh/padeopsIO/blob/main/examples/padeopsIO_quickstart.ipynb). 
 
 Data can be instanteous data: 
 
