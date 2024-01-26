@@ -833,7 +833,8 @@ class BudgetIO():
         
         loaded_keys = self.budget.keys()
         self.budget = {}  # empty dictionary
-        self.budget_tidx = self.unique_budget_tidx(return_last=True)  # reset to final TIDX
+        self.budget_n = None
+        self.budget_tidx = None  #self.unique_budget_tidx(return_last=True)  # reset to final TIDX
 
         if self.verbose: 
             print('clear_budgets(): Cleared loaded budgets: {}'.format(loaded_keys))
@@ -914,11 +915,11 @@ class BudgetIO():
         """
         
         if tidx is None: 
-            if self.budget.keys() is not None: 
+            if self.budget or  self.budget_tidx is not None:  # empty dictionary evaluates to False in python
                 # if there are budgets loaded, continue loading from that TIDX
                 tidx = self.budget_tidx  
-            else: 
-                # otherwise, load budgets from the last available TIDX
+            else:  
+                # load budgets from the last available TIDX
                 tidx = self.unique_budget_tidx(return_last=True)
             
         elif tidx not in self.all_budget_tidx: 
@@ -928,6 +929,9 @@ class BudgetIO():
             
             print("Requested budget tidx={:d} could not be found. Using tidx={:d} instead.".format(tidx, closest_tidx))
             tidx = closest_tidx 
+            
+        if self.verbose: 
+            print(f'Loading budgets {list(key_subset.keys())} from {tidx}')
             
         # these lines are almost verbatim from PadeOpsViz.py
         for key in key_subset:
@@ -943,7 +947,7 @@ class BudgetIO():
             self.budget[key] = temp.reshape((self.nx,self.ny,self.nz), order='F')  # reshape into a 3D array
 
         if self.verbose and len(key_subset) > 0: 
-            print('PadeOpsViz loaded the budget fields at TIDX:' + '{:.06f}'.format(tidx))
+            print('BudgetIO loaded the budget fields at TIDX:' + '{:.06f}'.format(tidx))
 
 
     def _read_budgets_npz(self, key_subset, mmap=None): 
@@ -957,7 +961,7 @@ class BudgetIO():
             self.budget[key] = npz[key]  
 
         if self.verbose: 
-            print('PadeOpsViz loaded the following budgets from .npz: ', list(key_subset.keys()))
+            print('BudgetIO loaded the following budgets from .npz: ', list(key_subset.keys()))
 
 
     def _read_budgets_mat(self, key_subset): 
@@ -970,7 +974,7 @@ class BudgetIO():
             self.budget[key] = budgets[key]  
 
         if self.verbose: 
-            print('PadeOpsViz loaded the following budgets from .mat: ', list(key_subset.keys()))
+            print('BudgetIO loaded the following budgets from .mat: ', list(key_subset.keys()))
 
 
     def _parse_budget_terms(self, budget_terms, include_wakes=False): 
@@ -1293,8 +1297,20 @@ class BudgetIO():
     
     
     def xy_avg(self, budget_terms=None, zlim=None, **slice_kwargs): 
-        """x-averages requested budget terms"""
-        tmp = self.slice(budget_terms=budget_terms, xlim=None, ylim=None, zlim=zlim, **slice_kwargs)
+        """
+        xy-averages requested budget terms
+        
+        Parameters
+        budget_terms : list
+            Budget terms, see _parse_budget_terms()
+        zlim : array-like
+            z-limits for slicing
+        slice_kwargs : Any
+            Additional keyword arguments, see BudgetIO.slice()
+        """
+        _slice_kwargs = dict(xlim=None, ylim=None, zlim=zlim)
+        _slice_kwargs.update(slice_kwargs)
+        tmp = self.slice(budget_terms=budget_terms, **_slice_kwargs)
         
         ret = {}
         for key in tmp['keys']: 
