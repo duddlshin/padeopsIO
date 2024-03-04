@@ -1424,10 +1424,26 @@ class BudgetIO():
         return np.array(times)
 
 
-    def unique_budget_n(self, return_last=False): 
-        """
-        Pulls all unique n from all budget terms. 
+    def match_budget_n(self, tidx=None): 
+        """Match budget n to budget tid"""
 
+        if tidx is None: 
+            tidx = self.unique_budget_tidx(return_last=False)
+
+        filenames = os.listdir(self.dir_name)
+        search_str = 'Run{:02d}.*budget.*_t{:06d}_n(\d+).*'
+        for tid in tidx: 
+            n_list = [int(re.findall(search_str.format(self.runid, tid), name)[0]) 
+                    for name in filenames 
+                    if re.findall(search_str.format(self.runid), name)]
+            
+        return np.array(n_list)
+
+
+    def last_budget_n(self, return_last=True): 
+        """
+        Pulls all unique n from budget terms in a directory and returns the largest value. 
+        
         Parameters
         ----------
         return_last : bool
@@ -1441,18 +1457,6 @@ class BudgetIO():
             return None 
             
         return self.unique_tidx(return_last=return_last, search_str='Run{:02d}.*_n(\d+).*')
-
-
-    def last_budget_n(self): 
-        """
-        Pulls all unique n from budget terms in a directory and returns the largest value. 
-
-        See: self.unique_budget_n()
-        """
-        if not self.associate_padeops: 
-            return None 
-            
-        return self.unique_budget_n(return_last=True)
     
     
     def existing_budgets(self): 
