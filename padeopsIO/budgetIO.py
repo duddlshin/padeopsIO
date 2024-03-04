@@ -1435,7 +1435,7 @@ class BudgetIO():
         for tid in tidx: 
             n_list = [int(re.findall(search_str.format(self.runid, tid), name)[0]) 
                     for name in filenames 
-                    if re.findall(search_str.format(self.runid), name)]
+                    if re.findall(search_str.format(self.runid, tid), name)]
             
         return np.array(n_list)
 
