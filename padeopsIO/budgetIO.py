@@ -1423,17 +1423,36 @@ class BudgetIO():
 
         return np.array(times)
 
-    
-    def last_budget_n(self): 
-        """
-        Pulls all unique n from budget terms in a directory and returns the largest value. 
-        """
 
-        # TODO: fix for .npz
+    def unique_budget_n(self, return_last=False): 
+        """
+        Pulls all unique n from all budget terms. 
+
+        Parameters
+        ----------
+        return_last : bool
+            If true, only returns the last (largest) element. 
+
+        Returns
+        -------
+        np.array
+        """
         if not self.associate_padeops: 
             return None 
             
-        return self.unique_tidx(return_last=True, search_str='Run{:02d}.*_n(\d+).*')
+        return self.unique_tidx(return_last=return_last, search_str='Run{:02d}.*_n(\d+).*')
+
+
+    def last_budget_n(self): 
+        """
+        Pulls all unique n from budget terms in a directory and returns the largest value. 
+
+        See: self.unique_budget_n()
+        """
+        if not self.associate_padeops: 
+            return None 
+            
+        return self.unique_budget_n(return_last=True)
     
     
     def existing_budgets(self): 
