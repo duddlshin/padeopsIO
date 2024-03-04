@@ -880,21 +880,26 @@ class BudgetIO():
         # parse budget_terms with the key
         key_subset = self._parse_budget_terms(budget_terms, include_wakes=False)
         
-        if self.budget_tidx == tidx:  # note: tidx could be `None`
-            if not overwrite:  
-                remove_keys = [key for key in key_subset if key in self.budget.keys()]
-                if len(remove_keys) > 0 and self.verbose: 
-                    print("read_budgets(): requested budgets that have already been loaded. \
-                        \n  Removed the following: {}. Pass overwrite=True to read budgets anyway.".format(remove_keys))
+        # Decide: overwrite existing budgets or not? 
+        if overwrite: 
+            # clear budgets -- we are explicitly overwriting budgets
+            self.clear_budgets() 
 
-                # remove items that have already been loaded in  
+        elif self.budget.keys() is not None: 
+            # budgets are already loaded, check which ones
+            if (self.budget_tidx == tidx) or (tidx is None): 
+                # remove items that have already been loaded in -- this omits overwriting these terms
                 key_subset = {key:key_subset[key] for key in key_subset if key not in self.budget.keys()}
                 
+                if self.verbose:   # print which keys were removed
+                    remove_keys = [key for key in key_subset if key in self.budget.keys()]
+                    if len(remove_keys) > 0:
+                        print("read_budgets(): requested budgets that have already been loaded. \
+                               \n  Removed the following: {}. Pass overwrite=True to read budgets anyway.".format(remove_keys))
+
             else: 
+                # clear budgets -- different tidx is currently loaded
                 self.clear_budgets()
-                
-        elif self.budget.keys() is not None and tidx is not None:  # clear previous TIDX budgets, if they exist
-            self.clear_budgets()
 
         if self.associate_padeops: 
             self._read_budgets_padeops(key_subset, tidx=tidx)  # this will not include wake budgets
@@ -1432,10 +1437,14 @@ class BudgetIO():
 
         filenames = os.listdir(self.dir_name)
         search_str = 'Run{:02d}.*budget.*_t{:06d}_n(\d+).*'
+
+        # the following is not efficient, but sufficient for now
+        n_list = []
         for tid in tidx: 
-            n_list = [int(re.findall(search_str.format(self.runid, tid), name)[0]) 
-                    for name in filenames 
-                    if re.findall(search_str.format(self.runid, tid), name)]
+            _n  = [int(re.findall(search_str.format(self.runid, tid), name)[0]) 
+                   for name in filenames 
+                   if re.findall(search_str.format(self.runid, tid), name)]
+            n_list.append(_n[0])
             
         return np.array(n_list)
 
