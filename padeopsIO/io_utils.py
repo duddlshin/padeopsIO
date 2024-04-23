@@ -66,9 +66,12 @@ def key_search_r(nested_dict, key):
         return
     
 
-def query_logfile(filename, search_terms=['TIDX'], 
-                  fsearch=r'({:s}).*\s+([-+]?(\d+(\.\d*)?|\.\d+)([dDeE][-+]?\d+)?)', 
-                  maxlen=None): 
+def query_logfile(
+        filename, search_terms=['TIDX'], 
+        fsearch=r'({:s}).*\s+([-+]?(\d+(\.\d*)?|\.\d+)([dDeE][-+]?\d+)?)', 
+        maxlen=None, 
+        crop_equal=True, 
+    ): 
     """
     Queries the PadeOps output log file for text lines printed out by temporalhook.F90. 
     
@@ -83,6 +86,7 @@ def query_logfile(filename, search_terms=['TIDX'],
         Search terms are case sensitive. 
     fsearch (string) : string format for regex target. 
     maxlen (int) : maximum length of return lists. Default: None
+    crop_equal (bool) : crops all variables to the same length if True. Default: True
     
     Returns
     -------
@@ -114,7 +118,13 @@ def query_logfile(filename, search_terms=['TIDX'],
                 ret[key].append(float(match.groups()[1]))
                 
     # convert lists to array: 
-    return {key: array(ret[key]) for key in ret.keys()}
+    if crop_equal: 
+        # crop all array elements to the last N items
+        N = min(len(ret[key]) for key in ret.keys())
+        return {key: array(ret[key][-N:]) for key in ret.keys()}
+    
+    else: 
+        return {key: array(ret[key]) for key in ret.keys()}
 
 
 def get_timekey(self, budget=False): 
