@@ -69,6 +69,7 @@ def get_key():
         'vT': (0, 28), 
         'wT': (0, 29), 
         'TT': (0, 30), 
+        'wb': (0, 31), 
         # BUDGET 1 TERMS: (momentum)
         'DuDt': (1, 1),  # x-advection
         'dpdx': (1, 2),  # x-pressure gradient
@@ -85,6 +86,7 @@ def get_key():
         'yCor': (1, 13), 
         'yGeo': (1, 14), 
         'yAD': (1, 15), 
+        'zBuoy': (1, 16),  # z buoyancy term
         # BUDGET 2 TERMS: (MKE)  TODO - improve the naming keys
         'MKE_TKE_loss': (2, 1), 
         'MKE_adv': (2, 2), 
