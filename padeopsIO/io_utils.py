@@ -5,7 +5,7 @@ import csv
 import re
 import os
 import padeopsIO
-from numpy import array, ndarray
+import numpy as np
 
 
 def read_list(dir_name): 
@@ -120,11 +120,14 @@ def query_logfile(
     # convert lists to array: 
     if crop_equal: 
         # crop all array elements to the last N items
-        N = min(len(ret[key]) for key in ret.keys())
-        return {key: array(ret[key][-N:]) for key in ret.keys()}
+        N = min(len(ret[key]) for key in ret.keys() if len(ret[key]) > 0)
+        to_return = dict()
+        for key in ret.keys():  #{key: array(ret[key][-N:]) for key in ret.keys() if len(ret[key]) > 0}
+            to_return[key] = np.array(ret[key][-N:]) if len(ret[key]) > 0 else np.full(N, np.nan)
+        return to_return
     
     else: 
-        return {key: array(ret[key]) for key in ret.keys()}
+        return {key: np.array(ret[key]) for key in ret.keys()}
 
 
 def get_timekey(self, budget=False): 
@@ -170,7 +173,7 @@ def structure_to_dict(arr):
     for key in keys:  
         val = arr[key][0][0]
 
-        if type(val) == ndarray and val.dtype.names is not None: 
+        if type(val) == np.ndarray and val.dtype.names is not None: 
             # recursive call
             val = structure_to_dict(val)
             ret[key] = val  # store the dictionary
