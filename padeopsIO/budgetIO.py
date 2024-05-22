@@ -1,3 +1,16 @@
+"""
+BudgetIO is the main linking object between PadeOps simulation data
+and the python post-processing framework. Namely, BudgetIO is used
+for reading instantaneous fields, time-averaged budgets, turbine 
+velocity and power data, and more. 
+
+These data can be read in from PadeOps source files and then saved
+as fast-access .npz binaries or exported to matlab as .mat files. 
+
+Kirby Heck
+2024 May 23
+"""
+
 import numpy as np
 import os
 import re
@@ -9,7 +22,6 @@ import padeopsIO.budgetkey as budgetkey  # defines key pairing
 import padeopsIO.inflow as inflow  # interface to retrieve inflow profiles
 import padeopsIO.turbineArray as turbineArray  # reads in a turbine array similar to turbineMod.F90
 from padeopsIO.io_utils import structure_to_dict, key_search_r
-from padeopsIO.wake_utils import *
 from padeopsIO.nml_utils import parser
 
 
@@ -1760,7 +1772,7 @@ class BudgetIO():
             return ret  # this is an array
         
         
-    def read_turb_property(self, tidx, prop_str, turb=1, steady=None): 
+    def read_turb_property(self, tidx, prop_str, turb=1, steady=None, dup_threshold=1e-12): 
         """
         Helper function to read turbine power, uvel, vvel. Calls self._read_turb_file() 
         for every time ID in tidx. 
@@ -1807,10 +1819,12 @@ class BudgetIO():
 
         prop_time = np.concatenate(prop_time)  # make into an array
         
-        # only select unique values... for some reason some values are written twice once budgets start up
-        _, prop_index = np.unique(prop_time, return_index=True)
+        # Upon restarting simulations, there appear to be "close duplicates" which are not taken out by `np.unique`
+        # Apply some threshold instead #TODO
+        ids_remove = np.where(abs(np.diff(prop_time)) < dup_threshold)
+        ret = np.delete(prop_time, ids_remove)
 
-        return prop_time[np.sort(prop_index)]  # this should make sure that n_powers = n_tidx
+        return ret
 
 
     def read_turb_power(self, tidx=None, **kwargs): 
