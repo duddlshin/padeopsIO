@@ -1,7 +1,7 @@
 import os
 
-from padeopsIO.turbine import Turbine
-from padeopsIO.nml_utils import parser
+from .turbine import Turbine
+from .nml_utils import parser
     
 class TurbineArray(): 
     """

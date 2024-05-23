@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-import padeopsIO.budgetkey as budgetkey
+from . import budgetkey
 
 
 class PlotIO(): 

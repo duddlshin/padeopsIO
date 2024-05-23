@@ -17,12 +17,12 @@ import re
 import warnings
 import glob
 from scipy.io import savemat, loadmat
+from pathlib import Path
 
-import padeopsIO.budgetkey as budgetkey  # defines key pairing
-import padeopsIO.inflow as inflow  # interface to retrieve inflow profiles
-import padeopsIO.turbineArray as turbineArray  # reads in a turbine array similar to turbineMod.F90
-from padeopsIO.io_utils import structure_to_dict, key_search_r
-from padeopsIO.nml_utils import parser
+from . import budgetkey, inflow, turbineArray
+from .io_utils import structure_to_dict, key_search_r
+from .wake_utils import get_xids
+from .nml_utils import parser
 
 
 class BudgetIO(): 
@@ -72,6 +72,10 @@ class BudgetIO():
             print('Attempting to initialize BudgetIO object at', dir_name)
         else: 
             self.verbose = False
+        
+        # Hotfix for pathlib paths:  # TODO
+        if isinstance(dir_name, Path): 
+            dir_name = str(dir_name.resolve())
         
         self.dir_name = dir_name
         
@@ -1863,3 +1867,4 @@ if __name__ == "__main__":
     TODO - add unit tests to class
     """
     print("padeopsIO: No unit tests included yet. ")
+    print(budgetkey)

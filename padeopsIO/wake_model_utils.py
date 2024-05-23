@@ -7,7 +7,7 @@ from numpy.linalg import lstsq
 from scipy.optimize import curve_fit
 from scipy import optimize
 
-from padeopsIO import ActuatorDisk
+from . import ActuatorDisk
 
 
 # ===================== WAKE FITTING ========================= 

@@ -1,9 +1,9 @@
 import numpy as np
 import warnings
 
-import padeopsIO.budgetIO as pio
+from .budgetIO import BudgetIO
 
-class YawIO(pio.BudgetIO): 
+class YawIO(BudgetIO): 
     """
     Class that extends BudgetIO which adds helper functions for reading turbine power, yaw, etc. 
     """
