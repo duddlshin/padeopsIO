@@ -131,7 +131,7 @@ def key_labels():
         'vv': "$\\overline{v'v'}/U^2$",
         'vw': "$\\overline{v'w'}/U^2$",
         'ww': "$\\overline{w'w'}/U^2$",
-        'pbar': "$\\bar{p}$", 
+        'pbar': "$\\bar{p}/(\\frac{1}{2}U^2)$", 
         'tau11': "$\\tau_{11}$", 
         'tau12': "$\\tau_{12}$", 
         'tau13': "$\\tau_{13}$", 
@@ -147,11 +147,11 @@ def key_labels():
         'ujtau1j': (0, 23), 
         'ujtau2j': (0, 24), 
         'ujtau3j': (0, 25), 
-        'Tbar': "$\\bar{T}$", 
-        'uT': "$\\overline{T'u'}$", 
-        'vT': "$\\overline{T'v'}$", 
-        'wT': "$\\overline{T'w'}$", 
-        'TT': "$\\overline{T'T'}$", 
+        'Tbar': "$\\bar{\\theta}$", 
+        'uT': "$\\overline{\\theta'u'}$", 
+        'vT': "$\\overline{\\theta'v'}$", 
+        'wT': "$\\overline{\\theta'w'}$", 
+        'TT': "$\\overline{\\theta'\\theta'}$", 
         # BUDGET 1 TERMS: (momentum)
         'DuDt': "$-Du/Dt$",  # x-advection
         'dpdx': "$-\\partial p/\\partial x$",  # x-pressure gradient

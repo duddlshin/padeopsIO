@@ -130,31 +130,6 @@ def query_logfile(
         return {key: np.array(ret[key]) for key in ret.keys()}
 
 
-def get_timekey(self, budget=False): 
-    """
-    Returns a dictionary matching time keys [TIDX in PadeOps] to non-dimensional times. 
-    
-    Arguments
-    ----------
-    self (BudgetIO object) : linked PadeOps BudgetIO object
-    budget (bool) : if true, matches budget times from BudgetIO.unique_budget_tidx(). Default false. 
-    
-    Returns
-    -------
-    timekey (dict) : matching {TIDX: time} dictionary 
-    """
-    tidxs = self.unique_tidx()
-    times = self.unique_times()
-    
-    timekey = {tidx: time for tidx, time in zip(tidxs, times)}
-    
-    if budget: 
-        keys = self.unique_budget_tidx(return_last=False)
-        return {key: timekey[key] for key in keys}
-    else: 
-        return timekey
-    
-
 def structure_to_dict(arr): 
     """
     Function to convert a numpy structured array to a nested dictionary. 

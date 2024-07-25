@@ -7,8 +7,11 @@ from numpy.linalg import lstsq
 from scipy.optimize import curve_fit
 from scipy import optimize
 
-from . import ActuatorDisk
+from .. import ActuatorDisk
 
+
+import warnings
+warnings.warn('wake_model_utils.py: This is being deprecated in a future release. ')
 
 # ===================== WAKE FITTING ========================= 
 

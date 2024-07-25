@@ -7,8 +7,8 @@ Kirby Heck
 
 import numpy as np
 
-from .io_utils import key_search_r
-from .wake_utils import get_xids
+from .utils.io_utils import key_search_r
+from .utils.wake_utils import get_xids
 
 
 def get_correction(CT, fwidth, D): 

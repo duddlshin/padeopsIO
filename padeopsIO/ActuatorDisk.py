@@ -16,6 +16,10 @@ from scipy.integrate import cumtrapz, trapz
 from scipy.optimize import minimize
 
 
+import warnings
+warnings.warn('wake_model_utils.py: This is being deprecated in a future release. ')
+
+
 def calculate_induction_limited(Ctprime, yaw, Uamb=1):
     """
     Solves the limiting case when v_4 << u_4. (Eq. 2.19, 2.20)

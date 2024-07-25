@@ -17,12 +17,14 @@ import re
 import warnings
 import glob
 from scipy.io import savemat, loadmat
+from scipy.interpolate import RegularGridInterpolator as RGI
 from pathlib import Path
 
 from . import budgetkey, inflow, turbineArray
-from .io_utils import structure_to_dict, key_search_r
-from .wake_utils import get_xids
-from .nml_utils import parser
+from .utils.io_utils import structure_to_dict, key_search_r
+from .utils.wake_utils import get_xids
+from .utils.nml_utils import parser
+from .utils import tools
 
 
 class BudgetIO(): 
@@ -32,7 +34,9 @@ class BudgetIO():
 
     key = budgetkey.get_key()
 
-    def __init__(self, dir_name, verbose=False, filename=None, 
+    def __init__(self, dir_name, 
+                 verbose=False, quiet=False, 
+                 filename=None, 
                  runid=None, normalize_origin=False, 
                  padeops=False, npz=False, mat=False, npy=False, 
                  read_budgets=None, 
@@ -58,7 +62,7 @@ class BudgetIO():
         DOMAIN VARIABLES: 
             Lx, Ly, Lz, nx, ny, nz, dx, dy, dz, xLine, yLine, zLine, 
         TURBINE VARIABLES: 
-            nTurb, 
+            n_turb, 
         PHYSICS: 
             Re, Ro, 
         BUDGET VARIABLES: 
@@ -66,25 +70,31 @@ class BudgetIO():
         
         """
 
+        self.quiet = quiet  # suppresses messages
+
         # print statements? default False
         if verbose: 
             self.verbose = True 
+            if self.quiet: 
+                print('__init__(): `quiet` is True but `verbose` is False. Setting `quiet=Falses`')
+                self.quiet = False
+                
             print('Attempting to initialize BudgetIO object at', dir_name)
         else: 
             self.verbose = False
+
         
         # Hotfix for pathlib paths:  # TODO
         if isinstance(dir_name, Path): 
             dir_name = str(dir_name.resolve())
         
         self.dir_name = dir_name
+        self.dirname = self.dir_name  # phaseout one of these eventually
         
         # all files associated with this case will begin with <filename>
         if filename is None: 
-            # defaults to the directory name, split on non-word characters
-            dir_list = re.split('\W+', dir_name)
-            # pick the last non-empty string
-            self.filename = next(s for s in reversed(dir_list) if s)
+            # defaults to the directory name, parse directory with pathlib
+            self.filename = Path(dir_name).name
         else: 
             self.filename = filename
 
@@ -154,7 +164,7 @@ class BudgetIO():
             self._read_inputfile(runid=runid)  # this initializes convenience variables
             
         except IndexError as err: 
-            warnings.warn("_init_padeops(): Could not find input file. Perhaps the directory does not exist? ")
+            warnings.warn(f"_init_padeops(): {self.filename} could not find input file. Perhaps the directory does not exist? ")
             print(err)
             raise err
         
@@ -190,6 +200,7 @@ class BudgetIO():
                 self.turbineArray = None
                 if self.verbose: 
                     print(e)
+            self.ta = self.turbineArray  # alias this for easier use
 
         # Throw an error if no RunID is found 
         if 'runid' not in self.__dict__:
@@ -214,18 +225,14 @@ class BudgetIO():
             self.associate_fields = True
 
         except FileNotFoundError as e: 
-            warnings.warn("_init_padeops(): No field files found!")
-            if self.verbose: 
-                print("\tNo field files found!")
+            warnings.warn(f"_init_padeops(): {self.filename} no field files found!")
         
         # try to associate budgets
         try: 
             self.all_budget_tidx = self.unique_budget_tidx(return_last=False)
             self.associate_budgets = True
         except FileNotFoundError as e: 
-            warnings.warn("_init_padeops(): No budget files found!")
-            if self.verbose: 
-                print("\tNo budget files found.")
+            warnings.warn(f"_init_padeops(): {self.filename} no budget files found!")
             
         if self.associate_fields: # The following are initialized as the final saved instanteous field and budget: 
             self.field_tidx = self.last_tidx
@@ -308,10 +315,20 @@ class BudgetIO():
         """
                 
         # RUN VARIABLES: 
-        self.runid = self.input_nml['io']['runid']
+        try:
+            self.runid = self.input_nml['io']['runid']
+        except KeyError: 
+            if not self.quiet: 
+                print('_convenience_variables(): no runid found')
+            self.runid = None
                 
         # TURBINE VARIABLES: 
-        self.nTurb = self.input_nml['windturbines']['num_turbines']
+        try: 
+            self.n_turb = self.input_nml['windturbines']['num_turbines']
+        except KeyError: 
+            self.n_turb = 0
+
+        self.nTurb = self.n_turb  # included for legacy - REMOVE 
 
         # PHYSICS: 
         if self.input_nml['physics']['isinviscid']:  # boolean
@@ -322,7 +339,7 @@ class BudgetIO():
         if self.input_nml['physics']['usecoriolis']: 
             self.Ro = key_search_r(self.input_nml, 'ro') 
             self.lat = key_search_r(self.input_nml, 'latitude')
-            self.Ro_f = self.Ro / (2*np.cos(self.lat*np.pi/180))
+            self.Ro_f = self.Ro / (2*np.sin(self.lat*np.pi/180))
         else: 
             self.Ro = np.Inf
 
@@ -368,20 +385,25 @@ class BudgetIO():
             self.dy = self.Ly/self.ny
             self.dz = self.Lz/self.nz
 
-            self.xLine = np.linspace(0,self.Lx-self.dx,self.nx)
-            self.yLine = np.linspace(0,self.Ly-self.dy,self.ny)
+            self.x = np.linspace(0,self.Lx-self.dx,self.nx)
+            self.y = np.linspace(0,self.Ly-self.dy,self.ny)
             # staggered in z
-            self.zLine = np.linspace(self.dz/2,self.Lz-(self.dz/2),self.nz)
+            self.z = np.linspace(self.dz/2,self.Lz-(self.dz/2),self.nz)
+
+            self.xLine, self.yLine, self.zLine = self.x, self.y, self.z  # try to phase out xLine, etc. 
         
         self.origin = origin  # default origin location
 
         self.associate_grid = True
 
         if normalize_origin:  # not None or False
-            if str(normalize_origin) in ['turb', 'turbine'] and self.associate_turbines: 
-                self.turbineArray.set_sort('xloc', sort=True)
-                self.normalize_origin(self.turbineArray.turbines[0].pos)
-            
+            if str(normalize_origin) in ['turb', 'turbine']: 
+                if self.associate_turbines: 
+                    self.turbineArray.sort(by='xloc')
+                    self.normalize_origin(self.turbineArray.turbines[0].pos)
+                else: 
+                    if not self.quiet: 
+                        print('Attempted to normalize origin to `turbine`, but no turbines associated')
             else: 
                 self.normalize_origin(normalize_origin)  # expects tuple (x, y, z)
 
@@ -816,7 +838,16 @@ class BudgetIO():
         # parse tidx
         if tidx is None: 
             tidx = self.last_tidx
-            
+
+        else:  # find closest tidx
+            tidx_all =  self.unique_tidx()
+            if tidx not in tidx_all: 
+                # find the nearest that actually exists
+                closest_tidx = tidx_all[np.argmin(np.abs(tidx_all-tidx))]
+                
+                print("Requested field tidx={:d} could not be found. Using tidx={:d} instead.".format(tidx, closest_tidx))
+                tidx = closest_tidx 
+
         # update self.time and self.tidx: 
         self.tidx = tidx
         
@@ -1020,30 +1051,20 @@ class BudgetIO():
         """
 
         # add string shortcuts here... # TODO move shortcuts to budgetkey.py? 
-        if budget_terms=='default': 
-            budget_terms = ['ubar', 'vbar', 'wbar', 
-                            'tau11', 'tau12', 'tau13', 'tau22', 'tau23', 'tau33', 
-                            'pbar']
-            
-        elif budget_terms=='current': 
+        if budget_terms=='current': 
             budget_terms = list(self.budget.keys())
 
         elif budget_terms=='all': 
             budget_terms = self.existing_terms(include_wakes=include_wakes)
-            
-        elif budget_terms=='RANS': 
-            budget_terms = ['ubar', 'vbar', 'wbar', 
-                            'pbar', 'Tbar', 
-                            'uu', 'uv', 'uw', 'vv', 'vw', 'ww', 
-                            'dpdx', 'dpdy', 'dpdz',
-                            'tau11', 'tau12', 'tau13', 'tau22', 'tau23', 'tau33']
+
+        elif isinstance(budget_terms, str) and budget_terms in BudgetIO.key:
+            budget_terms = [budget_terms]  # cast to a list
 
         elif type(budget_terms)==str: 
             warnings.warn("keyword argument budget_terms must be either 'default', 'all', 'RANS' or a list.")
             return {}  # empty dictionary
 
         # parse through terms: they are either 1) valid, 2) missing (but valid keys), or 3) invalid (not in BudgetIO.key)
-
         existing_keys = self.existing_terms(include_wakes=include_wakes)
         existing_tup = [BudgetIO.key[key] for key in existing_keys]  # corresponding associated tuples (#, #)
 
@@ -1055,7 +1076,6 @@ class BudgetIO():
         missing_tup = [tup for tup in budget_terms if tup not in existing_tup and tup in BudgetIO.key.inverse]
 
         # now combine existing valid keys and valid tuples, removing any duplicates
-
         valid_terms = set(valid_keys + [BudgetIO.key.inverse[tup][0] for tup in valid_tup])  # combine and remove duplicates
         missing_terms = set(missing_keys + [BudgetIO.key.inverse[tup][0] for tup in missing_tup])
 
@@ -1098,7 +1118,6 @@ class BudgetIO():
         """
         
         # load using InflowParser: 
-
         if offline: 
             if self.associate_nml: 
                 u, v = inflow.InflowParser.inflow_offline(**dict(self.input_nml['AD_coriolisinput']), zLine=self.zLine)
@@ -1112,7 +1131,6 @@ class BudgetIO():
             u, v = inflow.InflowParser.inflow_budgets(self) 
 
         # return requested information 
-
         if wInflow: 
             # If this is not nominally zero, then this will need to be fixed. 
             w = np.zeros(self.zLine.shape)
@@ -1280,6 +1298,70 @@ class BudgetIO():
             slices['extent'] = np.array(ext)
         
         return slices
+
+
+    def islice(
+            self, budget_terms, 
+            x=None, y=None, z=None, 
+            xlim=None, ylim=None, zlim=None, 
+            tidx=None, 
+            make_meshgrid=True, 
+            overwrite=False, 
+        ): 
+        """
+        Like slice, but interpolates using RegularGridInterpolator. 
+        And slower. 
+        
+        Parameters
+        ----------
+        self : BudgetIO object
+        budget_terms : list
+            budget terms sent to _parse_budget_terms()
+        
+        """
+
+        if all([xi is None for xi in [x, y, z]]): 
+            xid, yid, zid = self.get_xids(x=xlim, y=ylim, z=zlim, return_none=True, return_slice=True)
+            x = self.xLine[xid]
+            y = self.yLine[yid]
+            z = self.zLine[zid]
+        else: 
+            x = np.atleast_1d(x)
+            y = np.atleast_1d(y)
+            z = np.atleast_1d(z)
+
+        # read the requested budgets
+        keys = self._parse_budget_terms(budget_terms)
+        self.read_budgets(budget_terms=keys, tidx=tidx, overwrite=overwrite)
+
+        # this is the dictionary that will be returned  #TODO: make this into a slice object 
+        ret = dict()
+
+        # do the interpolation
+        for key in keys: 
+            interp_obj = RGI((self.xLine, self.yLine, self.zLine), self.budget[key])
+
+            if make_meshgrid: 
+                xiG = np.meshgrid(x, y, z, indexing='ij')
+                xi = np.array([xG.ravel() for xG in xiG]).T
+            else: 
+                xi = np.array([x, y, z]).T
+            ret[key] = np.squeeze(interp_obj(xi).reshape(xiG[0].shape))
+        
+        # finish the slice... add extents and axes
+        ret['x'] = x
+        ret['y'] = y
+        ret['z'] = z
+
+        ext = []
+        for term in ['x', 'y', 'z']: 
+            if ret[term].ndim > 0:  # if this is actually a slice (not a number), then add it to the extents
+            # if len(ret[term]) > 1:
+                ext += [np.min(ret[term]), np.max(ret[term])]
+        ret['extent'] = np.array(ext)
+        ret['keys'] = keys
+
+        return ret
 
 
     def get_xids(self, **kwargs): 
@@ -1734,7 +1816,7 @@ class BudgetIO():
         return sl
     
     
-    def _read_turb_file(self, prop, tid=None, turb=1, steady=True): 
+    def _read_turb_file(self, prop, tid=None, turb=1): 
         """
         Reads the turbine power from the output files 
 
@@ -1743,7 +1825,6 @@ class BudgetIO():
         prop (str) : property string name, either 'power', 'uvel', or 'vvel'
         tidx (int) : time ID to read turbine power from. Default: calls self.unique_tidx()
         turb (int) : Turbine number. Default 1
-        steady (bool) : Averages results if True. If False, returns an array containing the contents of `*.pow`. 
         """
         if prop == 'power': 
             fstr = '/Run{:02d}_t{:06d}_turbP{:02}.pow'
@@ -1765,21 +1846,21 @@ class BudgetIO():
             print("\tReading", fname)
             
         ret = np.genfromtxt(fname, dtype=float)  # read fortran ASCII output file
-        
+
         # for some reason, np.genfromtxt makes a size 0 array for length-1 text files. 
         # Hotfix: multiply by 1. 
         ret = ret*1  
         
-        if steady: 
-            return np.mean(ret)
-        else: 
-            return ret  # this is an array
+        return ret  # this is an array
         
         
     def read_turb_property(self, tidx, prop_str, turb=1, steady=None, dup_threshold=1e-12): 
         """
         Helper function to read turbine power, uvel, vvel. Calls self._read_turb_file() 
         for every time ID in tidx. 
+
+        steady (bool) : Averages results if True. If False, returns an array containing the contents of `*.pow`. 
+
         """
         
         if not self.associate_padeops:  # read from saved files
@@ -1803,7 +1884,7 @@ class BudgetIO():
 
         if tidx is None: 
             tidx = [self.last_tidx]  # just try the last TIDX by default
-        elif tidx == 'all': 
+        elif isinstance(tidx, str) and tidx == 'all': 
             tidx = self.unique_tidx(search_str='Run{:02d}.*_t(\d+).*.pow')
         
         if not hasattr(tidx, '__iter__'): 
@@ -1816,7 +1897,7 @@ class BudgetIO():
                 steady = True
             
         for tid in tidx:  # loop through time IDs and call helper function
-            prop = self._read_turb_file(prop_str, tid=tid, turb=turb, steady=steady)
+            prop = self._read_turb_file(prop_str, tid=tid, turb=turb)
             if type(prop) == np.float64:  # if returned is not an array, cast to an array
                 prop = np.array([prop])
             prop_time.append(prop)
@@ -1824,11 +1905,13 @@ class BudgetIO():
         prop_time = np.concatenate(prop_time)  # make into an array
         
         # Upon restarting simulations, there appear to be "close duplicates" which are not taken out by `np.unique`
-        # Apply some threshold instead #TODO
         ids_remove = np.where(abs(np.diff(prop_time)) < dup_threshold)
         ret = np.delete(prop_time, ids_remove)
 
-        return ret
+        if steady: 
+            return np.mean(ret)
+        else: 
+            return ret
 
 
     def read_turb_power(self, tidx=None, **kwargs): 
@@ -1860,11 +1943,83 @@ class BudgetIO():
         See self.read_turb_power() and self._read_turb_file()
         """
         return self.read_turb_property(tidx, 'vvel', **kwargs)
+
+    def get_ustar(self, logfile=None, crop_budget=True, average=True): 
+        """
+        Gleans ustar from the logfile.
+
+        Parameters
+        ----------
+        logfile : path-like, optional
+            Path to logfile. If None, searches for all files ending in '.o[0-9]*'.
+            Default is None.
+        crop_budget : bool, optional
+            Crops time axis to budgets. Defaults to True.
+        average : bool, optional
+            Time averages. Defaults to True.
+        """
+        return tools.get_ustar(self, logfile=logfile, crop_budget=crop_budget, average=average)
+
+    def get_uhub(self, z_hub=0, use_fields=False, **slice_kwargs): 
+        """Compute the hub height velocity"""
+        return tools.get_uhub(self, z_hub=z_hub, use_fields=use_fields, **slice_kwargs)
     
+    def get_phihub(self, z_hub=0, return_degrees=False, use_fields=False, **slice_kwargs): 
+        """Interpolate hub height wind direction (radians). """
+        return tools.get_uhub(
+            self, 
+            z_hub=z_hub, 
+            return_degrees=return_degrees, 
+            use_fields=use_fields, 
+            **slice_kwargs
+        )
+
+    def get_timekey(self, budget=False): 
+        """
+        Returns a dictionary matching time keys [TIDX in PadeOps] to non-dimensional times. 
+        
+        Arguments
+        ----------
+        self : BudgetIO object
+        budget : bool
+            If true, matches budget times from BudgetIO.unique_budget_tidx(). Default false. 
+        
+        Returns
+        -------
+        dict
+            matching {TIDX: time} dictionary 
+        """
+        return tools.get_timekey(self, budget=budget)
+    
+    def get_time_ax(self, return_tidx=False, missing_init_ok=True): 
+        """
+        Interpolates a time axis between Time IDs
+
+        Parameters
+        ----------
+        self : BudgetIO object
+        return_tidx : bool (optional)
+            If True, returns tidx, time axes. Default False
+        missing_init_ok : bool (optional)
+            If True, then info files do not need to be written on initialization, 
+            uses a workaround to find the restarts. Default True. 
+
+        Returns
+        -------
+        tidx, time 
+            if `return_tidx` is True
+        time
+            if `return_tidx` is False
+        """
+        return tools.get_time_ax(self, return_tidx=return_tidx, missing_init_ok=missing_init_ok)
+    
+    def get_dt(self): 
+        """Computes a mean time step dt for a simulation"""
+        return tools.get_dt(self)
+
 
 if __name__ == "__main__": 
     """
     TODO - add unit tests to class
     """
     print("padeopsIO: No unit tests included yet. ")
-    print(budgetkey)
