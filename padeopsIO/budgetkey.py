@@ -194,9 +194,9 @@ def key_labels():
         'vwake': "$\\Delta v_{wake}$",
         'wwake': "$\\Delta w_{wake}$", 
         # SPATIAL COORDINATES
-        'x': "$x/D$ (-)", 
-        'y': "$y/D$ (-)", 
-        'z': "$z/D$ (-)", 
+        'x': "$x/D$", 
+        'y': "$y/D$", 
+        'z': "$z/D$", 
         't': "$t$"
         # RANS BUDGETS - TODO
 #         'ududx': '$\\bar{u}
