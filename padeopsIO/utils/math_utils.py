@@ -76,7 +76,7 @@ def assemble_tensor_nd(field_dict, keys):
 
 def e_ijk(i, j, k): 
     """
-    Permutation operator, takes i, j, k in [1, 2, 3] 
+    Permutation operator, takes i, j, k in [0, 1, 2] 
     
     returns +1 if even permutation, -1 if odd permutation
     
@@ -105,46 +105,36 @@ def d_ij(i, j):
     return int(i==j)
 
 
-class DerOps(): 
+def gradient(f, dx, axis=(0, 1, 2), stack=-1, edge_order=2, **kwargs): 
     """
-    Derivative operations
+    Compute gradients of f using numpy.gradient
 
-    # TODO - finish class and standardize 
+    Parameters
+    ----------
+    f : ndarray
+    dx : float or tuple
+        Float (dx) or vector (dx, dy, dz)
+    axis : int or tuple
+        Axes to compute gradients over. Default is (0, 1, 2) for x, y, z
+    stack : int
+        Which axis to stack gradients before returning a tensor. 
+        Default is -1
+    edge_order : int
     """
+    
+    if hasattr(axis, '__iter__'): 
+        args = [dx[k] for k in axis]
+    else: 
+        args = [dx[axis]]
 
-    def __init__(self, 
-                 dx=(1, 1, 1), 
-                 order=2, edge_order=2, 
-                 periodic_x=False, periodic_y=False, periodic_z=False, 
-                 pade_z=False): 
-        
-        self.order = order
-        self.edge_order = edge_order
-        self.periodic_x = periodic_x
-        self.periodic_y = periodic_y
-        self.periodic_z = periodic_z
-        self.pade_z = pade_z
-        self.dx = dx
-        
-    def gradient(self, f, axis=(0, 1, 2), stack=-1): 
-        """
-        Compute gradients of f
-        """
-        
-        if hasattr(axis, '__iter__'): 
-            args = [self.dx[k] for k in axis]
-        else: 
-            args = [self.dx[axis]]
+    dfdxi = np.gradient(f, *args, axis=axis, edge_order=edge_order, **kwargs)
 
-        # TODO: fix gradient functions everywhere
-        dfdxi = np.gradient(f, *args, axis=axis, edge_order=self.edge_order)
-
-        if len(args) > 1: 
-            return np.stack(dfdxi, axis=stack)
-        return dfdxi
+    if len(args) > 1: 
+        return np.stack(dfdxi, axis=stack)
+    return dfdxi
 
 
-    def div(self, f, axis=-1, sum=False): 
+def div(f, dxi, axis=-1, sum=False, **kwargs): 
         """
         Computes the 3D divergence of vector or tensor field f: dfi/dxi
 
@@ -152,6 +142,8 @@ class DerOps():
         ----------
         f : (Nx, Ny, Nz, 3) or (Nx, Ny, Nz, ...) array
             Vector or tensor field f 
+        dxi : tuple
+            Vector (dx, dy, dz)
         axis : int, optional
             Axis to compute divergence, default -1 
             (Requires that f.shape[axis] = 3)
@@ -180,21 +172,20 @@ class DerOps():
             s = get_slice(f.ndim, axis, i)
 
             # TODO fix gradient functions everywhere
-            res[s] = np.gradient(f[s], self.dx[i], axis=i, edge_order=self.edge_order)
+            res[s] = np.gradient(f[s], dxi[i], axis=i, **kwargs)
 
         if sum: 
             return np.sum(res, axis=axis)
         else: 
             return res
 
-
 if __name__=='__main__': 
     # run basic tests: 
+    assert e_ijk(0, 0, 1) == 0
+    assert e_ijk(0, 2, 1) == -1
+    
     tmp = np.reshape(np.arange(24), (2,3,4))
-    der = DerOps()
 
-    # field = {'111': 111, '112': 112, '121': 121, '122': 122, '211': 211, '212': 212, '221': 221, '222': 222}
-    # keys_test = [[['111', '112'], ['121', '122']], [['211', '212'], ['221', '222']]]
     field = {
         str(k): np.ones((3, 4)) * k for k in range(8)
     }
