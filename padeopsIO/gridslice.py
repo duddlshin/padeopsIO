@@ -8,6 +8,7 @@ Kirby Heck
 
 import numpy as np
 import matplotlib.pyplot as plt
+import warnings
 
 
 class Grid3:
@@ -31,9 +32,7 @@ class Grid3:
         self.hasy = self.ny > 1
         self.hasz = self.nz > 1
 
-        self.xlabel = "$x/D$"
-        self.ylabel = "$y/D$"
-        self.zlabel = "$z/D$"
+        self.label_key = dict(x="$x/D$", y="$y/D$", z="$z/D$")
 
         self.index_axes()  # make the following properties index-able
 
@@ -82,17 +81,17 @@ class Grid3:
 
     def index_axes(self):
         # these labels exist:
-        self.labels = tuple(xi for xi in ["x", "y", "z"] if self.__dict__[f"has{xi}"])
+        self.labels = tuple(xi for xi in ["x", "y", "z"] if getattr(self, f"has{xi}"))
 
         # keep track of which axes this corresponds with (0, 1, 2) <=> (x, y, z)
         self.ids_exist = tuple(
-            k for k, xi in enumerate(["x", "y", "z"]) if self.__dict__[f"has{xi}"]
+            k for k, xi in enumerate(["x", "y", "z"]) if getattr(self, f"has{xi}")
         )
 
         # now index Lx, dx, x, and a matching key
-        self.Lxi = tuple(self.__dict__[f"L{xi}"] for xi in self.labels)
-        self.dxi = tuple(self.__dict__[f"d{xi}"] for xi in self.labels)
-        self.xi = tuple(self.__dict__[xi] for xi in self.labels)
+        self.Lxi = tuple(getattr(self, f"L{xi}") for xi in self.labels)
+        self.dxi = tuple(getattr(self, f"d{xi}") for xi in self.labels)
+        self.xi = tuple(getattr(self, xi) for xi in self.labels)
         self.axes_index = {k: xi for k, xi in enumerate(self.labels)}
 
     def get_axes(self, named=True):
@@ -138,45 +137,51 @@ class Slice:
     Slices can be used for analysis and visualization, and contain
     SliceData objects, which all share the same grid and are
     organized by keys in the Slice object.
+
+
     """
 
-    def __init__(self, *args, x=None, y=None, z=None, **kwargs):
+    def __init__(
+        self, *args, x=None, y=None, z=None, grid=None, strict_shape=True, **kwargs
+    ):
         """
         Initialize with another slice object (args)
         """
         if len(args) > 0:
-            if isinstance(args[0], dict):
+            if isinstance(args[0], Slice):
+                self.data = args[0].data
+                self.grid = args[0].grid
+                return
+            elif isinstance(args[0], dict):
                 self.data = args[0]
             else:
                 self.data = dict(field=args[0])
         else:
             self.data = kwargs  # assume all keyword arguments are fields
 
-        if "grid" in kwargs.keys():
-            self.grid = kwargs["grid"]
-        else:
-            self.grid = Grid3(x=x, y=y, z=z)
+        # load a grid
+        self.grid = grid or Grid3(x=x, y=y, z=z)
 
-        self.cast_data()  # cast data to SliceData objects
+        self.cast_data(strict_shape)  # cast data to SliceData objects
 
-    def cast_data(self):
+    def cast_data(self, strict_shape=True):
         """Cast arrays to SliceData objects. Checks that grid sizes match"""
         ret = dict()
         for key, arr in self.data.items():
-            ret[key] = self.cast_array(arr, key)
+            ret[key] = self.cast_array(arr, key, strict_shape=strict_shape)
         self.data = ret
 
-    def cast_array(self, arr, name):
+    def cast_array(self, arr, name, strict_shape=True):
         """Cast array `arr` to a SliceData object"""
-        return SliceData(arr, self.grid, name=name)
+        return SliceData(arr, self.grid, name=name, strict_shape=strict_shape)
 
-    def slice(self, xlim=None, ylim=None, zlim=None, keys=None, **kwargs):
+    def slice(self, xlim=None, ylim=None, zlim=None, keys=None):
         """Create a new Slice object with data sliced along specified axes"""
         # somehow, get_xids works wtih the (None, ) axes
         xi_ids = get_xids(
-            x=grid.x,
-            y=grid.y,
-            z=grid.z,
+            x=self.grid.x,
+            y=self.grid.y,
+            z=self.grid.z,
             xlim=xlim,
             ylim=ylim,
             zlim=zlim,
@@ -197,7 +202,7 @@ class Slice:
 
         # Adjust the grid for the sliced dimensions
         newaxes = {
-            label: getattr(self.grid, label)[slice_arg]
+            label: getattr(self.grid, label)[slice_arg]  # finds self.x, y, or z
             for label, slice_arg in zip(self.grid.labels, slice_args)
         }
 
@@ -206,7 +211,25 @@ class Slice:
     def keys(self):
         return self.data.keys()
 
+    def extent(self):
+        return self.grid.extent
+
+    def ndim(self):
+        return self.grid.ndim
+
     def __getitem__(self, key):
+        if key == "extent":
+            warnings.warn(
+                "Deprecation warning: use Slice.extent instead of Slice['extent']"
+            )
+            return self.grid.extent
+        elif key == "keys":
+            warnings.warn(
+                "Deprecation warning: use Slice.keys() instead of Slice['keys']"
+            )
+            return self.keys()
+        elif key in ["x", "y", "z"]:
+            return getattr(self.grid, key)
         return self.data[key]
 
     def __setitem__(self, key, arr):
@@ -216,29 +239,101 @@ class Slice:
         return repr(self.data)
 
 
-class SliceData:
-    def __init__(self, arr, grid, name=None):
-        self.name = name
-        self.grid = grid
-        self.arr = np.asarray(arr)
+class SliceData(np.ndarray):
 
-        if self.arr.shape != self.grid.shape:
-            raise ValueError(f"Shape mismatch in variable {name}")
+    def __new__(cls, arr, grid, name=None, strict_shape=True):
+        # initialize numpy array object
+        obj = np.asarray(arr).view(cls)
 
-    # ========= treat this object as a numpy array ==========
-    def __array__(self):
-        return self.arr
+        obj.name = name
+        obj.grid = grid
+        obj.strict_shape = strict_shape
+        return obj
+
+    def __array_finalize__(self, obj):
+        if obj is None:
+            return
+
+        self.name = getattr(obj, "name", None)
+        self.grid = getattr(obj, "grid", None)
+        self.strict_shape = getattr(obj, "strict_shape", True)
+
+    def __init__(self, *args, **kwargs):
+        """Check array and grid shape match"""
+
+        if self.shape != self.grid.shape:
+            if self.shape[:3] == self.grid.shape and not self.strict_shape:
+                # relaxed restrictions on grid shape to allow tensors
+                pass
+            else:
+                raise ValueError(
+                    f"Mismatch in shapes for '{self.name}': {str(self.shape)}, {str(self.grid.shape)}"
+                )
 
     def __getitem__(self, key):
-        return self.arr[key]
+        result = super().__getitem__(key)
+        # when slicing via indexing, need to also update grid
+        if isinstance(result, SliceData):
+            new_grid = self._adjust_grid(key)
+            result.grid = new_grid
+        return result
 
-    def __setitem__(self, key, value):
-        self.arr[key] = value
+    def _adjust_grid(self, keys):
+        """Slicing via indexing requires adjusting the grid"""
+        if not isinstance(keys, tuple):
+            keys = (keys,)
 
-    def __repr__(self):
-        return repr(self.arr)
+        # Ellipsis handling is the tough part
+        if keys.count(Ellipsis) == 1:
+            ellipsis_index = keys.index(Ellipsis)
+            num_full_slices = self.grid.ndim - len(keys) + 1
+            # pad keys with slice(None)
+            keys = (
+                keys[:ellipsis_index]
+                + (slice(None),) * num_full_slices
+                + keys[ellipsis_index + 1 :]
+            )
+        
+        # create new axes
+        new_axes = {
+            label: getattr(self.grid, label)[slice_arg]
+            for label, slice_arg in zip(self.grid.labels, keys)
+        }
 
-    # =======================================================
+        return Grid3(**new_axes)
+
+    def alias(self, name):
+        self.name = name
+
+    def slice(self, xlim=None, ylim=None, zlim=None):
+        """Create a new SliceData object with data sliced along specified axes"""
+        # somehow, get_xids works wtih the (None, ) axes
+        xi_ids = get_xids(
+            x=self.grid.x,
+            y=self.grid.y,
+            z=self.grid.z,
+            xlim=xlim,
+            ylim=ylim,
+            zlim=zlim,
+            return_slice=True,
+            return_none=True,
+        )
+
+        # prepare slice args for the dimensions that exist
+        slice_args = tuple(
+            _ids for k, _ids in enumerate(xi_ids) if k in self.grid.ids_exist
+        )
+
+        # now build data in the new Slice()
+        newdata = self[slice_args]
+
+        # Adjust the grid for the sliced dimensions
+        newaxes = {
+            label: getattr(self.grid, label)[slice_arg]  # finds self.x, y, or z
+            for label, slice_arg in zip(self.grid.labels, slice_args)
+        }
+
+        return SliceData(newdata, Grid3(**newaxes), name=self.name)
 
     def plot(self, ax=None, **kwargs):
         """Visualies the data"""
@@ -249,10 +344,14 @@ class SliceData:
             raise ValueError("Cannot visualize 0D data")
         elif self.grid.ndim < 2:
             _ax = self.grid.get_axes(named=False)
-            return ax.plot(_ax, self)
+            ax.set_xlabel(self.grid.label_key[self.grid.labels[0]])
+            return ax.plot(_ax, self, **kwargs)
+
         elif self.grid.ndim < 3:
-            extent = self.grid.extent
-            return ax.imshow(self.T, origin="lower", extent=extent)
+            ax.set_xlabel(self.grid.label_key[self.grid.labels[0]])
+            ax.set_ylabel(self.grid.label_key[self.grid.labels[1]])
+            return ax.imshow(self.T, origin="lower", extent=self.grid.extent, **kwargs)
+
         else:
             raise ValueError("Cannot visualize 3D data")
 
@@ -334,6 +433,11 @@ if __name__ == "__main__":
     # ==== grid unit tests ====
     x = np.linspace(0, 1, 11)
     grid = Grid3(x, None, 1)  # None axes OK; empty axes not ok
+
+    # a = SliceData(x, grid)
+    # print(a.grid.shape)
+    # print(a.name)
+    # print(a + a)
 
     assert grid.ndim == 1
     assert np.allclose(grid.x, x)
