@@ -7,7 +7,6 @@ license = "MIT"
 packages = [{ include = "padeopsIO" }]
 
 [tool.poetry.dependencies]
-# python = ">=3.7"
 python = "^3.8"
 numpy = ">=1.16"
 scipy = ">=1.6"
