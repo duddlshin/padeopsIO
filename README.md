@@ -9,8 +9,6 @@ Aside from standard python library packages, PadeOpsIO requires: <br>
 * `scipy` <br>
 * `matplotlib` <br>
 
-The `pyproject.toml` file lists the requirement Python >3.7, but if this causes issues it can be changed. `numpy` and `scipy` don't play nicely for some reason (to be resolved...) so they are left out of the `pyproject.toml` file. 
-
 ## Installation
 
 Clone the repo from GitHub. This can be done with: 
