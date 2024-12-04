@@ -299,7 +299,7 @@ class BudgetIO():
 
         # PHYSICS: 
         if self.input_nml['physics']['isinviscid']:  # boolean
-            self.Re = np.Inf
+            self.Re = np.inf
         else: 
             self.Re = self.input_nml['physics']['re']
 
@@ -308,12 +308,12 @@ class BudgetIO():
             self.lat = key_search_r(self.input_nml, 'latitude')
             self.Ro_f = self.Ro / (2*np.cos(self.lat*np.pi/180))
         else: 
-            self.Ro = np.Inf
+            self.Ro = np.inf
 
         if key_search_r(self.input_nml, 'isstratified'): 
             self.Fr = key_search_r(self.input_nml, 'fr')
         else: 
-            self.Fr = np.Inf
+            self.Fr = np.inf
         
         self.galpha = key_search_r(self.input_nml, 'g_alpha')
 
@@ -333,6 +333,8 @@ class BudgetIO():
         if x is not None and y is not None and z is not None: 
             for xi, xname in zip([x, y, z], ['x', 'y', 'z']): 
                 xi = np.atleast_1d(xi)  # expand to at least 1D
+                if np.all(xi == None): 
+                    xi = np.array([np.nan])  # hotfix for 0-D axes
                 self.__dict__[f'{xname}Line'] = xi
                 self.__dict__[f'L{xname}'] = xi.max() - xi.min()
                 try: 
