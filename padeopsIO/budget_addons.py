@@ -6,10 +6,9 @@ Kirby Heck
 """
 
 import numpy as np
-import copy
 
 from .utils import math_utils as math
-from .gridslice import Slice
+from .gridslice import Slice, SliceData
 
 
 # =============== NewBudget interface ================
@@ -170,6 +169,8 @@ class NewBudget(dict):
         d<ui'uj'>/dxj,
     the base level of aggregation (level 0) is to sum over j. If we want one level lower
     of diaggregation (level 1), the j-indices are not summed.
+
+    # TODO: make this extend the `Slice` class
     """
 
     req_keys = []  # required keys go here (e.g. 'ubar', etc...)
@@ -852,7 +853,7 @@ class BudgetVorticity(NewBudget):
 
     def _compute_budget(self):
         """
-        Computes RANS momentum budgets in x.
+        Computes vorticity budgets
         """
         self.base_terms = compute_vort_budget(
             self.budget,
@@ -865,8 +866,17 @@ class BudgetVorticity(NewBudget):
         )
 
     def _aggregate_custom(self, level, **kwargs):
-        """TODO"""
+        """Define custom aggregation here"""
+        if level == -1:
+            kwargs = {"turb_sgs": -1}
+            level = 0
+
         self.aggregate(level, **kwargs)
+        if "turb_sgs" in kwargs.keys() and kwargs["turb_sgs"] == -1:
+            self["turb_sgs"] = self["sgs"] + self["rs"]
+            del self["rs"], self["sgs"]
+
+        self["residual"] = self.pop("residual")  # move the residual to the end
 
 
 class BudgetVorticity_x(BudgetVorticity):
@@ -915,7 +925,7 @@ def compute_vort(field_dict, in_place=False):
     if in_place:
         field_dict["w_i"] = w_i
     else:
-        return Slice(w_i, grid=field_dict.grid)
+        return SliceData(w_i, grid=field_dict.grid, name="w_i", strict_shape=False)
 
 
 def compute_vort_budget(
@@ -1058,4 +1068,4 @@ def compute_vort_budget(
     for key in ret.keys():  # collapse extra dims
         ret[key] = np.squeeze(ret[key])
 
-    return Slice(ret, grid=field_dict.grid)
+    return Slice(ret, grid=field_dict.grid, strict_shape=False)
