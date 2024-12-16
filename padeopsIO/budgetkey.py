@@ -117,11 +117,21 @@ def get_key():
     return bidict(key)
 
 
-def key_labels(): 
+def key_labels(u="U", l="D"): 
     """
     Returns a dictionary that assigns a label to each budget key. 
     """
-    key = {  # BUDGET 0 TERMS: (1st and second order averages, scalars excluded)
+    key = {  
+        # FIELDS
+        'u': f'$u/{u}$', 
+        'v': f'$v/{u}$', 
+        'w': f'$w/{u}$', 
+        'T': f'$\\theta$', 
+        'p': f'$p/{u}^2$', 
+        'pfrn': f'$p^\\mathrm{{fr}}/{u}^2$', 
+        'ptrb': f'$p^\\mathrm{{trb}}/{u}^2$', 
+        'pdns': f'$p^\\mathrm{{dns}}/{u}^2$', 
+        # BUDGET 0 TERMS: (1st and second order averages, scalars excluded)
         'ubar': '$\\bar{u}/U$', 
         'vbar': '$\\bar{v}/U$',
         'wbar': '$\\bar{w}/U$',
@@ -194,12 +204,10 @@ def key_labels():
         'vwake': "$\\Delta v_{wake}$",
         'wwake': "$\\Delta w_{wake}$", 
         # SPATIAL COORDINATES
-        'x': "$x/D$", 
-        'y': "$y/D$", 
-        'z': "$z/D$", 
-        't': "$t$"
-        # RANS BUDGETS - TODO
-#         'ududx': '$\\bar{u}
+        'x': f"$x/{l}$", 
+        'y': f"$y/{l}$", 
+        'z': f"$z/{l}$", 
+        't': f"$t{u}/{l}$"
         }
     
     return key
