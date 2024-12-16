@@ -1,39 +1,8 @@
 # Additional IO functions (some work-in-progress)
 # USAGE: from io_utils import *
 
-import csv
 import re
-import os
-import padeopsIO
 import numpy as np
-
-
-def read_list(dir_name): 
-    """
-    Outputs a list of BudgetIO objects from a directory name by reading the associated
-    file `./Runs.csv`
-    
-    Arguments
-    ---------
-    dir_name (str) : directory path containing a file Runs.csv
-    
-    Returns
-    -------
-    run_list : list of BudgetIO objects
-    """
-    
-    # read runs
-    # https://stackoverflow.com/questions/24662571/python-import-csv-to-list
-    with open(os.path.join(dir_name, 'Runs.csv')) as f:
-        reader = csv.reader(f)
-        runs = list(reader)
-
-    run_list = []
-
-    for run in runs: 
-        run_list.append(padeopsIO.BudgetIO(run[0], padeops=True, verbose=False))
-        
-    return run_list
 
 
 def key_search_r(nested_dict, key):

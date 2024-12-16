@@ -54,7 +54,7 @@ def parser(filename, to_lowercase=True):
         
         # loop through lines
         for line in lines: 
-            res = re.search('&(\S+)', line)  # namelists start with "&"
+            res = re.search(r'^\s*&(\w+)', line)  # namelists start with "&" followed by a string
             if res is not None:  # starting new namelist
                 active = res.group(1)  # save string in active list
                 if to_lowercase: 

@@ -7,6 +7,7 @@ Kirby Heck
 
 
 import numpy as np
+from ..gridslice import Slice, SliceData
 
 
 def assemble_tensor_1d(field_dict, keys, axis=-1): 
@@ -49,26 +50,26 @@ def assemble_tensor_nd(field_dict, keys):
     np.ndarray
     """
 
-    def _assemble_nd(keys): 
-        """Recursive helper function"""
-        if isinstance(keys[0], str):  # TODO: what if the key is not a string? 
-            # base case, prepend stacks
-            return assemble_tensor_1d(field_dict, keys, axis=0)  
-        else: 
-            # recursive call: return stack [of stacks], also prepended
-            return np.stack([_assemble_nd(key) for key in keys], axis=0)  
-    
-    # use the recursive calls, which prepends each added index (e.g. [i, j, ..., x, y, z])
-    tensors_rev = _assemble_nd(keys)
-
     # keys is a list or a list of nested lists
     key_ls = list(field_dict.keys())
     try: 
         ndim = field_dict[key_ls[0]].ndim
     except AttributeError: 
-        return tensors_rev  # dictionary fields are not arrays
+        raise  # ???
+
+    def _assemble_nd(keys): 
+        """Recursive helper function"""
+        if isinstance(keys[0], str):  # TODO: what if the key is not a string? 
+            # base case, prepend stacks
+            return assemble_tensor_1d(field_dict, keys, axis=-1)  
+        else: 
+            # recursive call: return stack [of stacks], also prepended
+            return np.stack([_assemble_nd(key) for key in keys], axis=ndim)  
     
-    return np.moveaxis(tensors_rev, range(-ndim, 0), range(ndim))
+    # use the recursive calls, which prepends each added index (e.g. [x, y, z, i, j, ...])
+    tensors_rev = _assemble_nd(keys)
+    
+    return tensors_rev
 
 
 # ==================== index notation help ==========================
@@ -178,6 +179,187 @@ def div(f, dxi, axis=-1, sum=False, **kwargs):
             return np.sum(res, axis=axis)
         else: 
             return res
+
+
+# =======================================
+# === FLUIDS POSTPROCESSING FUNCTIONS ===
+# =======================================
+
+def compute_vort(field_dict, in_place=False):
+    """
+    Computes the vorticity vector w_i = [w_x, w_y, w_z]
+
+    Parameters
+    ----------
+    sl_dict : Slice()
+        Budget object or Slice() from BudgetIO.slice()
+    in_place : bool, optional
+        Returns result if False. Default False
+
+    Returns
+    -------
+    w_i : (Nx, Ny, Nz, 3)
+        4D Vorticity tensor, if in_place=False
+    """
+
+    u_i = assemble_tensor_1d(field_dict, ["ubar", "vbar", "wbar"])
+    dxi = field_dict.grid.dxi
+
+    dukdxj = gradient(
+        u_i, dxi, axis=(0, 1, 2), stack=-2
+    )  # stack along -2 axis so indexing is x, y, z, j, k
+
+    w_i = np.zeros(field_dict.grid.shape + (3,))
+    for i in range(3):  # can this be done w/o a loop?
+        w_i[..., i] = np.sum(E_ijk[i, ...] * dukdxj, axis=(-2, -1))
+
+    if in_place:
+        field_dict["w_i"] = w_i
+    else:
+        return SliceData(w_i, grid=field_dict.grid, strict_shape=False, name='w_i')
+
+
+def compute_vort_budget(
+    field_dict,
+    direction,
+    Ro=None,
+    lat=45.0,
+    fplane=True,
+    Fr=None,
+    theta0=300.0,
+):
+    """
+    Computes the offline vorticity budget in three component directions.
+
+    All terms are nd arrays [x,y,z,i, ...] for the i-direction of vorticity.
+
+    Parameters
+    ----------
+    field_dict : Slice()
+        from BudgetIO.slice(), expects velocity, temperature, subgrid stresses, and reynolds stresses
+    direction : int or list
+        Direction (0, 1, 2), or a tuple/list of directions
+        (e.g., i=(0, 1)) computes x, y vorticity
+    Ro : float
+        Rossby number as defined in LES
+    lat : float
+        Latitude in degrees, default is 45, NOT None.
+    fplane : bool
+        Use fplane approximation. Default True.
+    Fr : float
+        Froude number, defined Fr = G/sqrt(g*L_c)
+    theta0 : float
+        Reference potential temperature, Default 300 [K].
+
+    Returns
+    -------
+    dict
+        Vorticity budget terms
+    """
+
+    # if der is None:
+    #     der = DerOps(dx=dx)
+    dims = field_dict.grid.shape
+    dxi = field_dict.grid.dxi
+    dirs = np.unique(direction)  # np.unique returns an at least 1D array
+
+    # allocate memory for all the tensors
+    adv_ij = np.zeros(dims + (len(dirs), 3))
+    str_ij = np.zeros(dims + (len(dirs), 3))
+    buoy_ij = np.zeros(dims + (len(dirs), 3))
+    sgs_ijkm = np.zeros(dims + (len(dirs), 3, 3, 3))  # 7D, [x, y, z, i, j, k, m]
+    if fplane:
+        cor_i = np.zeros(dims + (len(dirs),))
+    else:
+        cor_i = np.zeros(dims + (len(dirs), 3))
+    rs_ijkm = np.zeros(dims + (len(dirs), 3, 3, 3))  # also 7D
+
+    # check all required tensors exist:  (may throw KeyError)
+    u_i = assemble_tensor_1d(field_dict, keys=["ubar", "vbar", "wbar"])
+    w_i = compute_vort(field_dict, in_place=False)
+    field_dict["w_i"] = w_i  # save vorticity keys to the budget object:
+    uiuj = assemble_tensor_nd(field_dict, rs_keys)
+    tau_ij = assemble_tensor_nd(field_dict, tau_keys)
+    Tbar = field_dict["Tbar"]
+
+    # compute tensor quantities:
+    for ii in dirs:
+        # compute coriolis
+        if fplane:
+            cor_i[:, :, :, ii] = (
+                2 / Ro * np.sin(lat) * gradient(u_i[:, :, :, ii], dxi, axis=2)
+            )
+        else:
+            raise NotImplementedError(
+                "compute_vort_budget(): fplane = False not implemeneted"
+            )
+
+        for jj in range(3):
+            # advection (on RHS, flipped sign)
+            adv_ij[:, :, :, ii, jj] = -u_i[:, :, :, jj] * gradient(
+                w_i[:, :, :, ii], dxi, axis=jj
+            )
+
+            # vortex stretching
+            str_ij[:, :, :, ii, jj] = w_i[:, :, :, jj] * gradient(
+                u_i[:, :, :, ii], dxi, axis=jj
+            )
+
+            # buoyancy torque
+            if theta0 is not None:
+                eijk = e_ijk(ii, jj, 2)  # buoyancy term has k=3
+                if eijk == 0:
+                    buoy_ij[:, :, :, ii, jj] = 0  # save compute time by skipping these
+                else:
+                    buoy_ij[:, :, :, ii, jj] = (
+                        eijk * gradient(Tbar, axis=jj) / (Fr**2 * theta0),
+                        dxi,
+                    )
+
+            for kk in range(3):
+                # nothing is ijk at the moment, Coriolis w/o trad. approx. is, however
+
+                for mm in range(3):
+                    # compute permutation operator
+                    eijk = e_ijk(ii, jj, kk)
+
+                    if eijk == 0:
+                        sgs_ijkm[:, :, :, ii, jj, kk, mm] = 0
+                        rs_ijkm[:, :, :, ii, jj, kk, mm] = 0
+                    else:
+                        sgs_ijkm[:, :, :, ii, jj, kk, mm] = eijk * gradient(
+                            gradient(
+                                -tau_ij[:, :, :, kk, mm],
+                                dxi,
+                                axis=mm,
+                            ),
+                            dxi,
+                            axis=jj,
+                        )
+                        rs_ijkm[:, :, :, ii, jj, kk, mm] = eijk * gradient(
+                            gradient(-uiuj[:, :, :, kk, mm], dxi, axis=mm),
+                            dxi,
+                            axis=jj,
+                        )
+
+    # now sum over extra axes to collapse terms
+    ret = {
+        "adv_j": adv_ij,
+        "str_j": str_ij,
+        "buoy_j": buoy_ij,
+        "sgs_jkm": sgs_ijkm,
+        "cor": cor_i,
+        "rs_jkm": rs_ijkm,
+    }
+
+    agg = base_aggregate(ret, ndim=len(dims), base_agg=1)  # aggregate along i
+    ret["residual"] = sum(agg[key] for key in agg.keys())
+
+    for key in ret.keys():  # collapse extra dims
+        ret[key] = np.squeeze(ret[key])
+
+    return Slice(ret, grid=field_dict.grid)
+
 
 if __name__=='__main__': 
     # run basic tests: 

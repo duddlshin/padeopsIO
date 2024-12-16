@@ -9,6 +9,10 @@ Kirby Heck
 import numpy as np
 import matplotlib.pyplot as plt
 import warnings
+from .budgetkey import key_labels
+
+
+labels = key_labels()
 
 
 class Grid3:
@@ -75,7 +79,8 @@ class Grid3:
     def _compute_length(self, arr):
         """Compute the length of the array."""
         if arr.ndim > 0:
-            return arr[-1] - arr[0]
+            # return arr[-1] - arr[0]
+            return np.diff(arr)[0] * len(arr)  # = dx * nx
         else:
             return 0
 
@@ -89,20 +94,39 @@ class Grid3:
         )
 
         # now index Lx, dx, x, and a matching key
+        self.xi = tuple(getattr(self, xi) for xi in self.labels)
         self.Lxi = tuple(getattr(self, f"L{xi}") for xi in self.labels)
         self.dxi = tuple(getattr(self, f"d{xi}") for xi in self.labels)
-        self.xi = tuple(getattr(self, xi) for xi in self.labels)
+        self.nxi = tuple(getattr(self, f"n{xi}") for xi in self.labels)
         self.axes_index = {k: xi for k, xi in enumerate(self.labels)}
 
-    def get_axes(self, named=True):
+    def get_axes(self, named=False, special_if_1d=True):
         """Returns axes with length > 1"""
         if named:  # returns a dictionary
             return {l: ax for l, ax in zip(self.labels, self.xi)}
         else:  # returns a list
-            if self.ndim == 1:
+            if self.ndim == 1 and special_if_1d:
                 return self.xi[0]  # don't return as a length-1 array
             else:
                 return self.xi
+            
+    def get_xids(self, xlim=None, ylim=None, zlim=None, return_slice=False, return_none=None): 
+        """Calls get_xids()"""
+        xi_ids = get_xids(
+            x=self.x,
+            y=self.y,
+            z=self.z,
+            xlim=xlim,
+            ylim=ylim,
+            zlim=zlim,
+            return_slice=return_slice,
+            return_none=return_none,
+        )
+        return xi_ids
+
+
+    def to_meshgrid(self): 
+        return np.meshgrid(*self.get_axes(named=False, special_if_1d=False), indexing='ij')
 
     def todict(self):
         return dict(x=self.x, y=self.y, z=self.z)
@@ -130,7 +154,7 @@ class Grid3:
         return ret
 
 
-class Slice:
+class Slice(dict):
     """
     Slice class for "wrapping" dictionaries of numpy arrays.
 
@@ -171,7 +195,7 @@ class Slice:
             ret[key] = self.cast_array(arr, key, strict_shape=strict_shape)
         self.data = ret
 
-    def cast_array(self, arr, name, strict_shape=True):
+    def cast_array(self, arr, name, strict_shape=False):
         """Cast array `arr` to a SliceData object"""
         return SliceData(arr, self.grid, name=name, strict_shape=strict_shape)
 
@@ -207,15 +231,25 @@ class Slice:
         }
 
         return Slice(newdata, **newaxes)
+    
+    def plot(self, **kwargs): 
+        for key in self.keys(): 
+            self[key].plot(**kwargs)
 
     def keys(self):
         return self.data.keys()
 
+    @property
     def extent(self):
         return self.grid.extent
 
+    @property
     def ndim(self):
         return self.grid.ndim
+
+    def todict(self): 
+        # TODO - shouldn't this already be a dictionary object? 
+        return {**self.data, "x":self.grid.x, "y":self.grid.y, "z":self.grid.z}
 
     def __getitem__(self, key):
         if key == "extent":
@@ -230,7 +264,8 @@ class Slice:
             return self.keys()
         elif key in ["x", "y", "z"]:
             return getattr(self.grid, key)
-        return self.data[key]
+        else: 
+            return self.data[key]
 
     def __setitem__(self, key, arr):
         self.data[key] = self.cast_array(arr, key)  # may throw ValueError
@@ -284,7 +319,10 @@ class SliceData(np.ndarray):
             keys = (keys,)
 
         # Ellipsis handling is the tough part
-        if keys.count(Ellipsis) == 1:
+        if len(keys) == 1 and self.grid.ndim > 1: 
+            keys = (np.asarray(keys[0]), Ellipsis, )  # append an ellipsis on the end, consistent with numpy?
+
+        if keys.count(Ellipsis) == 1:  # FIX THIS! 
             ellipsis_index = keys.index(Ellipsis)
             num_full_slices = self.grid.ndim - len(keys) + 1
             # pad keys with slice(None)
@@ -301,6 +339,42 @@ class SliceData(np.ndarray):
         }
 
         return Grid3(**new_axes)
+    
+    def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
+        # Extract data arrays and grids from inputs
+        arrays = []
+        for x in inputs:
+            if isinstance(x, SliceData):
+                arrays.append(x.data)
+            else:
+                arrays.append(x)
+
+        # Perform the ufunc operation
+        result = getattr(ufunc, method)(*arrays, **kwargs)
+        return result  # returns numpy array
+        
+        # TODO : FIX THIS
+        # performing numpy operations on a SliceData object should return
+        # a SliceData object, but updating the dimensions in a general way
+        # is not straightforward. 
+
+        # # Determine the resulting grid dimensions
+        # if result.shape < self.grid.shape:
+        #     # adjust the grid as needed
+        #     M = self.grid.to_meshgrid()
+        #     index = self.grid.axes_index  # matching indices to axis labels
+        #     grid_kwargs = dict()
+        #     for k, _m in enumerate(M): 
+        #         newax = getattr(ufunc, method)(_m, **kwargs)
+        #         if not np.allclose(newax, newax[0]): 
+        #             grid_kwargs[index[k]] = getattr(self.grid, index[k])
+
+        #     new_grid = Grid3(**grid_kwargs)
+        # else:
+        #     new_grid = self.grid
+
+        # # Return a new SliceData instance with updated grid
+        # return SliceData(result, grid=new_grid)
 
     def alias(self, name):
         self.name = name
@@ -335,7 +409,7 @@ class SliceData(np.ndarray):
 
         return SliceData(newdata, Grid3(**newaxes), name=self.name)
 
-    def plot(self, ax=None, **kwargs):
+    def plot(self, ax=None, colorbar=True, **kwargs):
         """Visualies the data"""
         if ax is None:
             fig, ax = plt.subplots()
@@ -350,7 +424,11 @@ class SliceData(np.ndarray):
         elif self.grid.ndim < 3:
             ax.set_xlabel(self.grid.label_key[self.grid.labels[0]])
             ax.set_ylabel(self.grid.label_key[self.grid.labels[1]])
-            return ax.imshow(self.T, origin="lower", extent=self.grid.extent, **kwargs)
+            im =  ax.imshow(self.T, origin="lower", extent=self.grid.extent, **kwargs)
+            if colorbar: 
+                label = labels[self.name] if self.name in labels.keys() else None
+                plt.colorbar(im, ax=ax, label=label)
+            return im
 
         else:
             raise ValueError("Cannot visualize 3D data")
@@ -434,20 +512,16 @@ if __name__ == "__main__":
     x = np.linspace(0, 1, 11)
     grid = Grid3(x, None, 1)  # None axes OK; empty axes not ok
 
-    # a = SliceData(x, grid)
-    # print(a.grid.shape)
-    # print(a.name)
-    # print(a + a)
-
     assert grid.ndim == 1
     assert np.allclose(grid.x, x)
     assert grid.shape == (11,)
     assert grid.extent == [0, 1]
 
+    grid = Grid3(x, 2 * x, 1)
     data = np.random.rand(*grid.shape)
-    a = Slice(data, grid=grid)
-    assert isinstance(a, Slice)
+    a = SliceData(data, grid=grid, name='a')
+    assert isinstance(a, SliceData)
     a_slice = a.slice(xlim=[0.4, 1])
-    assert isinstance(a_slice, Slice)
+    assert isinstance(a_slice, SliceData)
 
     print("all tests passed")

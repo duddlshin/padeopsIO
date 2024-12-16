@@ -16,7 +16,9 @@ import sys
 from pathlib import Path
 
 from .. import BudgetIO
+from .. import budgetkey
 
+budget_keys = budgetkey.get_key()
 
 def copy_padeops_data(
         case=None, 
@@ -25,9 +27,12 @@ def copy_padeops_data(
         runid=1,
         tidx=None,
         copy_budgets=True,
+        budget_terms=None, 
         copy_restarts=True,
+        copy_final_restarts=False, 
         copy_fields=True,
         copy_logfiles=True,
+        copy_infofiles=False, 
         overwrite=False,
         quiet=False
     ): 
@@ -48,6 +53,9 @@ def copy_padeops_data(
         Uses case.unique_tidx()[-1] if None. Default None
     copy_budgets : bool, optional
         Copies budget files if True. Default True. 
+        #TODO add the option to keep only some budget terms
+    budget_terms : list of terms
+        Parse budget terms 
     copy_restarts : bool, optional
         Copies restart files if True; restart files must be locatable. Default True. 
     copy_fields : bool, optional
@@ -69,26 +77,24 @@ def copy_padeops_data(
         case = BudgetIO(case_dir, padeops=True, runid=runid, quiet=quiet)
         case_dir = Path(case_dir)
     else: 
-        case_dir = Path(case_dir)
+        case_dir = Path(case.dirname)
     
     # set export directory
     if export_dir is None: 
         target = case_dir.parent / 'export' / case.filename
+    else: 
+        target = Path(export_dir)
 
     if not quiet: 
         print('Copying files. Target directory: ', target)
 
     # make the target directory, if needed
-    try: 
-        os.makedirs(target)
-    except FileExistsError as e: 
-        pass  # directory already exists
+    target.mkdir(exist_ok=True, parents=True)
 
     # glean last tidx and last budget_tidx if no `tidx` is explicitly given
     if tidx is None: 
         last_tidx = case.unique_tidx(return_last=True)
-        if copy_budgets: 
-            last_budget_tidx = case.unique_budget_tidx(return_last=True)
+        last_budget_tidx = case.unique_budget_tidx(return_last=True)
     else: 
         last_tidx = tidx
         last_budget_tidx = tidx  # assume these exist
@@ -99,16 +105,33 @@ def copy_padeops_data(
     # find all of the files... hopefully they are saved in the right place! 
     files = {}
     if copy_budgets: 
-        files['budgets'] = list(case_dir.glob(f'Run{case.runid:02d}*budget*_t{last_budget_tidx:06d}*'))
+        if budget_terms is None: 
+            files['budgets'] = list(case_dir.glob(f'Run{case.runid:02d}*budget*_t{last_budget_tidx:06d}*'))
+        else: 
+            if isinstance(budget_terms, str): 
+                budget_terms = [budget_terms]
+
+            ret = []
+            for key in budget_terms: 
+                _b, _id = budget_keys[key]  # pair values
+                ret.append(list(case_dir.glob(f"Run{case.runid:02d}_budget{_b}_term{_id:02d}_t{last_budget_tidx:06d}*"))[0])
+            files['budgets'] = ret
 
     if copy_fields: 
         files['fields'] = list(case_dir.glob(f'Run{case.runid:02d}*_t{last_tidx:06d}.out'))
 
-    if copy_restarts: 
+    if copy_restarts and case.input_nml['input']['userestartfile']: 
         r_tidx = case.input_nml['input']['restartfile_tid']
         r_id = case.input_nml['input']['restartfile_rid']
         r_dir = Path(case.input_nml['input']['inputdir'])
         files['restarts'] = list(r_dir.glob(f'RESTART_Run{r_id:02d}*.{r_tidx:06d}'))
+
+    if copy_final_restarts: 
+        files['restarts_final'] = list(case_dir.glob(f'RESTART_Run{case.runid:02d}*.{last_tidx:06d}'))
+
+    if copy_infofiles: 
+        files['infofiles'] = list(case_dir.glob(f'Run{case.runid:02d}_info_t*'))
+
     if copy_logfiles: 
         files['logfiles'] = list(case_dir.glob('*.[oe][0-9]*'))
 
@@ -126,7 +149,7 @@ def copy_padeops_data(
     if not quiet:
         print('Total number of files to copy: ', len(all_files))
 
-    existing_files = [f.name for f in Path(target).glob('*')]  # [os.path.basename(file) for file in os.listdir(target)]  # existing files
+    existing_files = [f.name for f in target.glob('*')]
     n_skip = 0 
 
     # copy files! 
@@ -137,7 +160,7 @@ def copy_padeops_data(
             continue  # skip this one
 
         # we can't copy directories in the same way that we copy files
-        if f.is_dir():  # os.path.isdir(name): 
+        if f.is_dir():
             try: 
                 shutil.copytree(f, target / f.name)
             except FileExistsError as e: 
@@ -157,13 +180,16 @@ def copy_padeops_data(
         print(f'Elapsed time: {time_end - time_st:.1f} s\n')
 
 
-def export_concurrent(dirs, export_dir, 
-                      runid_primary=5, 
-                      runid_precursor=4, 
-                      budget_terms=None, export_kwargs=None, 
-                      filetype='npz', verbose=True, 
-                      copy_precursor=False, 
-    ): 
+def export_concurrent(
+        dirs, export_dir, 
+        runid_primary=5, 
+        runid_precursor=4, 
+        budget_terms=None, 
+        export_kwargs=None, 
+        filetype='npz', 
+        verbose=True, 
+        copy_precursor=True, 
+): 
 
     """
     Loads a list of concurrent precursor simulations from PadeOps and 
@@ -175,16 +201,16 @@ def export_concurrent(dirs, export_dir,
         List of paths to load PadeOps data from
     export_dir : path-like
         Target export directory, must exist. 
-    
     """
     
     # load cases: 
-    cases = [BudgetIO(name, padeops=True, verbose=verbose, 
-                          runid=runid_primary, 
-                          normalize_origin='turb') for name in dirs]
+    cases = [BudgetIO(
+        name, padeops=True, verbose=verbose, 
+        runid=runid_primary, 
+        normalize_origin='turb') for name in dirs]
     if copy_precursor: 
         # load precursors, same directories as cases
-        pres = [BudgetIO(case.dir_name, padeops=True, verbose=verbose, 
+        pres = [BudgetIO(case.dirname, padeops=True, verbose=verbose, 
                              runid=runid_precursor, normalize_origin=case.origin) for case in cases]
 
     if export_kwargs is None:  # default kwargs for exporting
@@ -202,24 +228,12 @@ def export_concurrent(dirs, export_dir,
         for case, pre in zip(cases, pres):  
             print('writing', case.filename)
             pre_name = case.filename + '_precursor'
-            if filetype == 'npz': 
-                case.write_npz(export_dir, **export_kwargs)
-                pre.write_npz(export_dir, filename=pre_name, **export_kwargs)
-            elif filetype == 'mat': 
-                case.write_mat(export_dir, **export_kwargs)
-                pre.write_mat(export_dir, filename=pre_name, **export_kwargs)
-            else: 
-                raise ValueError('export_concurrent(): `filetype` must be npz or mat. ')
-
+            case.write_data(export_dir, fmt=filetype, **export_kwargs)
+            pre.write_data(export_dir, filename=pre_name, fmt=filetype, **export_kwargs)
     else: 
         for case in cases:  
             print('writing', case.filename)
-            if filetype == 'npz': 
-                case.write_npz(export_dir, **export_kwargs)
-            elif filetype == 'mat': 
-                case.write_mat(export_dir, **export_kwargs)
-            else: 
-                raise ValueError('export_concurrent(): `filetype` must be npz or mat. ')
+            case.write_data(export_dir, fmt=filetype, **export_kwargs)
     
 
 def debug(): 
