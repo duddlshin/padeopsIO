@@ -12,20 +12,17 @@ Kirby Heck
 """
 
 import numpy as np
-import os
 import re
 import warnings
-import glob
 from scipy.io import savemat, loadmat
 from scipy.interpolate import RegularGridInterpolator as RGI
 from pathlib import Path
 
-from . import budgetkey, inflow, turbineArray
+from . import budgetkey, turbineArray
 from .utils.io_utils import structure_to_dict, key_search_r
-from .utils.wake_utils import get_xids
 from .utils.nml_utils import parser
 from .utils import tools
-from .gridslice import Slice, Grid3
+from .gridslice import Slice, Grid3, get_xids
 
 
 class BudgetIO:
@@ -34,6 +31,16 @@ class BudgetIO:
     """
 
     key = budgetkey.get_key()
+
+    def print(self, *args):
+        """Prints statements if self.quiet is False"""
+        if not self.quiet:
+            print(*args)
+
+    def printv(self, *args):
+        """Prints verbose messages if self.verbose is True"""
+        if self.verbose:
+            self.print(*args)
 
     def __init__(
         self,
@@ -80,7 +87,7 @@ class BudgetIO:
 
         self.quiet = quiet  # suppresses messages
 
-        # print statements? default False
+        # print verbose? default False
         if verbose:
             self.verbose = True
             if self.quiet:
@@ -93,22 +100,16 @@ class BudgetIO:
         else:
             self.verbose = False
 
-        # Hotfix for pathlib paths:  # TODO
-        if isinstance(dirname, Path):
-            dirname = str(dirname.resolve())
+        if isinstance(dirname, str):
+            dirname = Path(dirname)  # using pathlib for everything
 
         self.dirname = dirname
-        self.dir_name = self.dirname  # phaseout dir_name eventually
+        self.dir_name = self.dirname  # deprecate dir_name eventually
 
         # all files associated with this case will begin with <filename>
-        if filename is None:
-            # defaults to the directory name, parse directory with pathlib
-            self.filename = Path(dirname).name
-        else:
-            self.filename = filename
-
-        self.filename_budgets = self.filename + "_budgets"  # standardize this
-
+        self.filename = filename or dirname.name
+        self.fname_budgets = self.filename + "_budgets.{:s}"  # standardize this here
+        self.fname_meta = self.filename + "_metadata.{:s}"
         # ========== Associate files ==========
 
         # if we are given the required keywords, try to initialize from PadeOps source files
@@ -128,10 +129,14 @@ class BudgetIO:
 
             try:
                 self._init_padeops(runid=runid, normalize_origin=normalize_origin)
-                self.printv(f"Initialized BudgetIO at {dirname} from PadeOps source files.")
+                self.printv(
+                    f"Initialized BudgetIO at {dirname} from PadeOps source files."
+                )
 
             except OSError as err:
-                warnings.warn("Attempted to read PadeOps output files, but at least one was missing.")
+                warnings.warn(
+                    "Attempted to read PadeOps output files, but at least one was missing."
+                )
                 self.print(err)
                 raise
 
@@ -183,15 +188,16 @@ class BudgetIO:
 
         # READ TURBINES, only do this if usewindturbines = True
         if (
-            self.associate_nml and self.input_nml["windturbines"]["usewindturbines"]
-        ):  # TODO may throw KeyError
-
+            self.associate_nml
+            and "windturbines" in self.input_nml.keys()
+            and self.input_nml["windturbines"]["usewindturbines"]
+        ):
             self.printv("_init_padeops(): Initializing wind turbine array object")
 
-            turb_dir = self.input_nml["windturbines"]["turbinfodir"]
-            if not os.path.exists(turb_dir):  # switch this to pathlib
+            turb_dir = Path(self.input_nml["windturbines"]["turbinfodir"])
+            if not turb_dir.exists(): 
                 # hotfix: maybe this folder was copied elsewhere
-                turb_dir = os.path.join(self.dirname, "turb")
+                turb_dir = self.dirname / "turb"
 
             num_turbines = self.input_nml["windturbines"]["num_turbines"]
             ADM_type = self.input_nml["windturbines"]["adm_type"]
@@ -237,14 +243,14 @@ class BudgetIO:
             self.associate_fields = True
 
         except FileNotFoundError as e:
-            warnings.warn(f"_init_padeops(): {self.filename} no field files found!")
+            warnings.warn(f"_init_padeops(): {self.filename} no field files found.")
 
         # try to associate budgets
         try:
             self.all_budget_tidx = self.unique_budget_tidx(return_last=False)
             self.associate_budgets = True
         except FileNotFoundError as e:
-            warnings.warn(f"_init_padeops(): {self.filename} no budget files found!")
+            warnings.warn(f"_init_padeops(): {self.filename} no budget files found.")
 
         if (
             self.associate_fields
@@ -257,16 +263,6 @@ class BudgetIO:
                 self.unique_budget_tidx()
             )  # but may be changed by the user
             self.budget_n = self.last_n
-
-    def print(self, *args): 
-        """Prints statements if self.quiet is False"""
-        if not self.quiet: 
-            print(*args)
-
-    def printv(self, *args): 
-        """Prints verbose messages if self.verbose is True"""
-        if self.verbose: 
-            self.print(*args)
 
     def _read_inputfile(self, runid=None):
         """
@@ -284,19 +280,19 @@ class BudgetIO:
         """
 
         # search all files ending in '*.dat'
-        inputfile_ls = glob.glob(
-            self.dirname + os.sep + "*.dat"
-        )  # for now, just search this
+        inputfile_ls = list(self.dirname.glob("*.dat"))
 
         if len(inputfile_ls) == 0:
             raise FileNotFoundError(
-                "_read_inputfile(): No inputfiles found at {:s}".format(self.dirname)
+                "_read_inputfile(): No inputfiles found at {:}".format(
+                    self.dirname.resolve()
+                )
             )
 
         self.printv("\tFound the following files:", inputfile_ls)
 
         # try to search all input files '*.dat' for the proper run and match it
-        for inputfile in glob.glob(self.dirname + os.sep + "*.dat"):
+        for inputfile in inputfile_ls:
             input_nml = parser(inputfile)
             self.printv("\t_read_inputfile(): trying inputfile", inputfile)
 
@@ -315,7 +311,9 @@ class BudgetIO:
                     self.printv("\t_read_inputfile(): matched RunID with", inputfile)
                     return
             elif self.verbose:
-                self.printv("\t_read_inputfile(): WARNING - no keyword `runid` given to init.")
+                self.printv(
+                    "\t_read_inputfile(): WARNING - no keyword `runid` given to init."
+                )
 
         # if there are still no input files found, we've got a problem
 
@@ -356,25 +354,25 @@ class BudgetIO:
 
         self.nTurb = self.n_turb  # included for legacy - REMOVE
 
-        # PHYSICS: 
-        if self.input_nml['physics']['isinviscid']:  # boolean
+        # PHYSICS:
+        if self.input_nml["physics"]["isinviscid"]:  # boolean
             self.Re = np.inf
-        else: 
-            self.Re = self.input_nml['physics']['re']
+        else:
+            self.Re = self.input_nml["physics"]["re"]
 
-        if self.input_nml['physics']['usecoriolis']: 
-            self.Ro = key_search_r(self.input_nml, 'ro') 
-            self.lat = key_search_r(self.input_nml, 'latitude')
-            self.Ro_f = self.Ro / (2*np.cos(self.lat*np.pi/180))
-        else: 
+        if self.input_nml["physics"]["usecoriolis"]:
+            self.Ro = key_search_r(self.input_nml, "ro")
+            self.lat = key_search_r(self.input_nml, "latitude")
+            self.Ro_f = self.Ro / (2 * np.cos(self.lat * np.pi / 180))
+        else:
             self.Ro = np.inf
 
-        if key_search_r(self.input_nml, 'isstratified'): 
-            self.Fr = key_search_r(self.input_nml, 'fr')
-        else: 
+        if key_search_r(self.input_nml, "isstratified"):
+            self.Fr = key_search_r(self.input_nml, "fr")
+        else:
             self.Fr = np.inf
-        
-        self.galpha = key_search_r(self.input_nml, 'g_alpha')
+
+        self.galpha = key_search_r(self.input_nml, "g_alpha")
 
     def _load_grid(
         self, x=None, y=None, z=None, origin=(0, 0, 0), normalize_origin=None
@@ -388,8 +386,8 @@ class BudgetIO:
         if self.associate_grid:
             self.printv("_load_grid(): Grid already exists. ")
             return
-        
-        if self.associate_padeops: 
+
+        if self.associate_padeops:
             # need to parse the inputfile to build the staggered grid
             gridkeys = ["nx", "ny", "nz", "lx", "ly", "lz"]
             gridvars = {key: key_search_r(self.input_nml, key) for key in gridkeys}
@@ -402,8 +400,8 @@ class BudgetIO:
         # initialize grid variable
         self.grid = Grid3(x=x, y=y, z=z)
         # copy grid keys into the namespace of `self`
-        for xi in ["x", "y", "z"]: 
-            for key in ["{:s}", "L{:s}", "d{:s}", "n{:s}"]: 
+        for xi in ["x", "y", "z"]:
+            for key in ["{:s}", "L{:s}", "d{:s}", "n{:s}"]:
                 setattr(self, key.format(xi), getattr(self.grid, key.format(xi)))
 
         self.xLine, self.yLine, self.zLine = (
@@ -414,7 +412,9 @@ class BudgetIO:
 
         self.origin = origin  # default origin location
         if normalize_origin:  # not None or False
-            self.normalize_origin(normalize_origin)  # expects tuple (x, y, z) or string "turb"
+            self.normalize_origin(
+                normalize_origin
+            )  # expects tuple (x, y, z) or string "turb"
 
         self.associate_grid = True
 
@@ -423,7 +423,7 @@ class BudgetIO:
         Normalize the origin to point `origin` (x, y, z)
 
         `origin` can also be a string "turb" to place the origin
-        at the leading turbine. 
+        at the leading turbine.
 
         Parameters
         ----------
@@ -432,7 +432,7 @@ class BudgetIO:
             If none, resets the origin.
         """
 
-        if origin in ["turb", "turbine"]: 
+        if origin in ["turb", "turbine"]:
             if self.associate_turbines:
                 self.turbineArray.sort(by="xloc")
                 origin = self.ta[0].pos  # position of the leading turbine
@@ -468,7 +468,7 @@ class BudgetIO:
         One filename including "_metadata.npz"
         """
         # load metadata: expects a file named <filename>_metadata.npz
-        filepath = self.dirname + os.sep + self.filename + "_metadata.npz"
+        filepath = self.dirname / self.fname_meta.format("npz")
         try:
             ret = np.load(filepath, allow_pickle=True)
         except FileNotFoundError as e:
@@ -500,11 +500,8 @@ class BudgetIO:
                 normalize_origin=normalize_origin,
             )
 
-        # check budget files
-        budget_files = glob.glob(
-            self.dirname + os.sep + self.filename_budgets + ".npz"
-        )
-        if len(budget_files) == 0:
+        # check budget files exist
+        if not (self.dirname / self.fname_budgets.format("npz")).exists():
             warnings.warn("No associated budget files found")
         else:
             self.associate_budgets = True
@@ -528,17 +525,14 @@ class BudgetIO:
         print("_init_npy(): Warning - deprecated. Use _init_npz() instead. ")
 
         # load metadata: expects a file named <filename>_metadata.npy
-        filepath = self.dirname + os.sep + self.filename + "_metadata.npy"
+        filepath = self.dirname / self.fname_meta.format("npy")
         try:
             self.input_nml = np.load(filepath, allow_pickle=True).item()
         except FileNotFoundError as e:
             raise e
 
         # check budget files
-        budget_files = glob.glob(
-            self.dirname + os.sep + self.filename_budgets + ".npz"
-        )
-        if len(budget_files) == 0:
+        if not (self.dirname / self.fname_budgets.format("npz")).exists():
             warnings.warn("No associated budget files found")
         else:
             self.associate_budgets = True
@@ -575,7 +569,7 @@ class BudgetIO:
         """
 
         # load metadata: expects a file named <filename>_metadata.mat
-        filepath = self.dirname + os.sep + self.filename + "_metadata.mat"
+        filepath = self.dirname / self.fname_meta("mat")
         try:
             ret = loadmat(filepath)
         except FileNotFoundError as e:
@@ -608,10 +602,7 @@ class BudgetIO:
             )
 
         # link budgets
-        budget_files = glob.glob(
-            self.dirname + os.sep + self.filename_budgets + ".mat"
-        )
-        if len(budget_files) == 0:
+        if not (self.dirname / self.fname_budgets.format(".mat")).exists():
             warnings.warn("No associated budget files found")
         else:
             self.associate_budgets = True
@@ -622,7 +613,7 @@ class BudgetIO:
         self.printv("_init_mat(): BudgetIO initialized using .mat files.")
 
     def write_data(
-        self, 
+        self,
         write_dir=None,
         budget_terms="current",
         filename=None,
@@ -630,13 +621,13 @@ class BudgetIO:
         xlim=None,
         ylim=None,
         zlim=None,
-        fmt="npz", 
-        xy_avg=False, 
-    ): 
+        fmt="npz",
+        xy_avg=False,
+    ):
         """
-        Saves budgets as .npz files. All budgets are put in one file, and 
+        Saves budgets as .npz files. All budgets are put in one file, and
         simulation metadata is in a second file. Budgets follow keys as given
-        in `padeopsIO.budgetkey`. 
+        in `padeopsIO.budgetkey`.
 
         Parameters
         ----------
@@ -656,12 +647,11 @@ class BudgetIO:
             Format of output files, either "npz" or "mat". Default is "npz".
         """
         if not self.associate_budgets:
-            warnings.warn("write_npz(): No budgets associated! ")
+            warnings.warn("write_data(): No budgets associated, returning.")
             return
 
         # declare directory to write to, default to the working directory
-        if write_dir is None:
-            write_dir = self.dirname
+        write_dir = write_dir or self.dirname
 
         if budget_terms == "current":
             key_subset = self.budget.keys()  # currently loaded budgets
@@ -671,21 +661,24 @@ class BudgetIO:
             key_subset = self._parse_budget_terms(budget_terms)
 
         # load budgets (TODO: add fields)
-        if xy_avg: 
+        if xy_avg:
             sl = self.xy_avg(budget_terms=key_subset, xlim=xlim, ylim=ylim, zlim=zlim)
-        else: 
+        else:
             sl = self.slice(budget_terms=key_subset, xlim=xlim, ylim=ylim, zlim=zlim)
 
         # if `filename` is provided, write files with the provided name
         if filename is None:
             filename = self.filename
-        
+            fname_budgets = self.fname_budgets
+        else:
+            fname_budgets = filename + "_budgets.{:s}"
+
         write_dir = Path(write_dir)
-        filepath = write_dir / f"{filename}_budgets.{fmt}"
+        filepath = write_dir / fname_budgets.format(fmt)
 
         # don't unintentionally overwrite files...
         write_arrs = False
-        if not os.path.exists(filepath):
+        if not filepath.exists():
             write_arrs = True
         elif overwrite:
             write_arrs = True
@@ -704,11 +697,11 @@ class BudgetIO:
         if write_arrs:
             self.printv("write_data(): attempting to save budgets to", filepath)
 
-            if fmt == "npz": 
+            if fmt == "npz":
                 np.savez(filepath, **save_arrs)
-            elif fmt == "mat": 
+            elif fmt == "mat":
                 savemat(filepath, save_arrs)
-            else: 
+            else:
                 raise ValueError("File format `fmt` needs to be npz or mat")
 
             # SAVE METADATA
@@ -717,7 +710,7 @@ class BudgetIO:
             self.printv(
                 "write_data: Successfully saved the following budgets: ",
                 list(key_subset),
-                "at " + str(filepath)
+                "at " + str(filepath),
             )
 
     def write_npz(self, *args, **kwargs):
@@ -762,7 +755,7 @@ class BudgetIO:
                     except KeyError as e:
                         pass
 
-        filepath_meta = os.path.join(write_dir, fname + f"_metadata.{src}")
+        filepath_meta = write_dir / (fname + f"_metadata.{src}")
 
         if src == "mat":
             savemat(filepath_meta, save_dict)
@@ -833,8 +826,9 @@ class BudgetIO:
         # the following is very similar to PadeOpsViz.ReadVelocities()
 
         for term in terms:
-            fname = self.dirname + "/Run{:02d}_{:s}_t{:06d}.out".format(
-                self.runid, dict_match[term], self.tidx
+            fname = (
+                self.dirname
+                / f"Run{self.runid:02d}_{dict_match[term]:s}_t{self.tidx:06d}.out"
             )
             tmp = np.fromfile(fname, dtype=np.dtype(np.float64), count=-1)
             self.field[term] = tmp.reshape(
@@ -844,18 +838,16 @@ class BudgetIO:
         # cast to Slice() object
         self.field = Slice(self.field, x=self.x, y=self.y, z=self.z)
 
-        self.print(f"BudgetIO loaded fields {str(list(terms)):s} at tidx: {self.tidx:d}, time: {self.time:.06f}")
-
-
-    def update_time(self, tidx): 
-        """Updates self.time"""
-        info_fname = self.dirname + "/Run{:02d}_info_t{:06d}.out".format(
-            self.runid, tidx
+        self.print(
+            f"BudgetIO loaded fields {str(list(terms)):s} at tidx: {self.tidx:d}, time: {self.time:.06f}"
         )
+
+    def update_time(self, tidx):
+        """Updates self.time"""
+        info_fname = self.dirname / f"Run{self.runid:02d}_info_t{tidx:06d}.out"
         info = np.genfromtxt(info_fname, dtype=None)
         self.time = info[0]
         # return nothing
-
 
     def clear_budgets(self):
         """
@@ -909,11 +901,11 @@ class BudgetIO:
         if not self.associate_budgets:
             raise AttributeError("read_budgets(): No budgets linked. ")
 
-        # we need to handle computed quantities differently...
-        if any(t in ["uwake", "vwake", "wwake"] for t in budget_terms):
-            self.calc_wake()
+        # # we need to handle computed quantities differently...
+        # if any(t in ["uwake", "vwake", "wwake"] for t in budget_terms):
+        #     self.calc_wake()
 
-            self.printv("read_budgets: Successfully loaded wake budgets. ")
+        #     self.printv("read_budgets: Successfully loaded wake budgets. ")
 
         # parse budget_terms with the key
         key_subset = self._parse_budget_terms(budget_terms, include_wakes=False)
@@ -972,7 +964,7 @@ class BudgetIO:
         """
 
         if tidx is None:
-            if (self.budget or self.budget_tidx is not None):  
+            if self.budget or self.budget_tidx is not None:
                 # if there are budgets loaded, continue loading from that TIDX
                 tidx = self.budget_tidx
             else:
@@ -991,10 +983,12 @@ class BudgetIO:
             )
             tidx = closest_tidx
 
-        try: 
+        try:
             self.update_time(tidx)
-        except FileNotFoundError: 
-            warnings.warn(f"Tried to update time, but no info file found for TIDX {tidx}")
+        except FileNotFoundError:
+            warnings.warn(
+                f"Tried to update time, but no info file found for TIDX {tidx}"
+            )
             pass  # probably budget and field dumps not synchronized
 
         self.printv(f"Loading budgets {list(key_subset.keys())} from {tidx}")
@@ -1003,19 +997,14 @@ class BudgetIO:
         for key in key_subset:
             budget, term = BudgetIO.key[key]
 
-            searchstr = (
-                self.dirname
-                + "/Run{:02d}_budget{:01d}_term{:02d}_t{:06d}_*.s3D".format(
-                    self.runid, budget, term, tidx
-                )
-            )
-            try: 
-                u_fname = glob.glob(searchstr)[0]
-            except IndexError as e: 
-                raise FileNotFoundError(f'No files found at {searchstr}')
+            searchstr = f"Run{self.runid:02d}_budget{budget:01d}_term{term:02d}_t{tidx:06d}_*.s3D"
+            try:
+                u_fname = next(self.dirname.glob(searchstr))
+            except IndexError as e:
+                raise FileNotFoundError(f"No files found at {searchstr}")
 
             self.budget_n = int(
-                re.findall(".*_t\d+_n(\d+)", u_fname)[0]
+                re.findall(".*_t\d+_n(\d+)", str(u_fname))[0]
             )  # extract n from string
             self.budget_tidx = tidx  # update self.budget_tidx
 
@@ -1034,7 +1023,7 @@ class BudgetIO:
 
         # load the npz file and keep the requested budget keys
         for key in key_subset:
-            npz = np.load(self.dirname + os.sep + self.filename + "_budgets.npz")
+            npz = np.load(self.dirname / self.fname_budgets.format("npz"))
             self.budget[key] = npz[key]
 
         self.printv(
@@ -1048,7 +1037,7 @@ class BudgetIO:
         """
 
         for key in key_subset:
-            budgets = loadmat(self.dirname + os.sep + self.filename + "_budgets.mat")
+            budgets = loadmat(self.dirname / self.fname_budgets.format("mat"))
             self.budget[key] = budgets[key]
 
         self.printv(
@@ -1090,13 +1079,17 @@ class BudgetIO:
         elif isinstance(budget_terms, str) and budget_terms in self.key:
             budget_terms = [budget_terms]  # cast to a list
 
-        elif 'budget' in budget_terms and any(chr.isdigit() for chr in budget_terms):
-            budgetnum = re.findall('[0-5]', budget_terms)
+        elif "budget" in budget_terms and any(chr.isdigit() for chr in budget_terms):
+            budgetnum = re.findall("[0-5]", budget_terms)
             if len(budgetnum) < 1 or len(budgetnum) > 1:
-                raise AttributeError('read_budgets(): budget_terms incorrectly specified. \n \
-                                     String should contain a single number from 0-5, e.g. "budget0".')
+                raise AttributeError(
+                    'read_budgets(): budget_terms incorrectly specified. \n \
+                                     String should contain a single number from 0-5, e.g. "budget0".'
+                )
             else:
-                budget_terms = [term for term in self.key if self.key[term][0] == int(budgetnum[0])]
+                budget_terms = [
+                    term for term in self.key if self.key[term][0] == int(budgetnum[0])
+                ]
 
         elif type(budget_terms) == str:
             warnings.warn(
@@ -1114,9 +1107,7 @@ class BudgetIO:
             t for t in budget_terms if t not in existing_keys and t in self.key
         ]
         invalid_terms = [
-            t
-            for t in budget_terms
-            if t not in self.key and t not in self.key.inverse
+            t for t in budget_terms if t not in self.key and t not in self.key.inverse
         ]
 
         valid_tup = [
@@ -1165,96 +1156,96 @@ class BudgetIO:
 
         return key_subset
 
-    def _get_inflow(self, offline=False, wInflow=False):
-        """
-        Calls the appropriate functions in inflow.py to retrieve the inflow profile for the corresponding flow.
+    # def _get_inflow(self, offline=False, wInflow=False):
+    #     """
+    #     Calls the appropriate functions in inflow.py to retrieve the inflow profile for the corresponding flow.
 
-        Arguments
-        ---------
-        offline (bool) : if True, uses the target inflow profile prescribed by initialize.F90. Default (False) reads
-            the inflow profile from the first x-index of the domain and average over y.
-        wInflow (bool) : if True, returns an array of w-inflow velocities. Default (False) only returns u, v.
+    #     Arguments
+    #     ---------
+    #     offline (bool) : if True, uses the target inflow profile prescribed by initialize.F90. Default (False) reads
+    #         the inflow profile from the first x-index of the domain and average over y.
+    #     wInflow (bool) : if True, returns an array of w-inflow velocities. Default (False) only returns u, v.
 
-        Returns
-        -------
-        u (array) : [nz x 1] array of u-velocities as a function of height
-        v (array) : [nz x 1] array of v-velocities as a function of height
-        w (array) : [nz x 1] array of w-velocities as a function of height. Nominally this is all zero.
+    #     Returns
+    #     -------
+    #     u (array) : [nz x 1] array of u-velocities as a function of height
+    #     v (array) : [nz x 1] array of v-velocities as a function of height
+    #     w (array) : [nz x 1] array of w-velocities as a function of height. Nominally this is all zero.
 
-        """
+    #     """
 
-        # load using InflowParser:
-        if offline:
-            if self.associate_nml:
-                u, v = inflow.InflowParser.inflow_offline(
-                    **dict(self.input_nml["AD_coriolisinput"]), zLine=self.zLine
-                )
+    #     # load using InflowParser:
+    #     if offline:
+    #         if self.associate_nml:
+    #             u, v = inflow.InflowParser.inflow_offline(
+    #                 **dict(self.input_nml["AD_coriolisinput"]), zLine=self.zLine
+    #             )
 
-            # reading from the budgets
-            else:
-                warnings.warn(
-                    "_get_inflow: Requested offline inflow, but namelist not associated. Trying online."
-                )
-                u, v = inflow.InflowParser.inflow_budgets(self)
+    #         # reading from the budgets
+    #         else:
+    #             warnings.warn(
+    #                 "_get_inflow: Requested offline inflow, but namelist not associated. Trying online."
+    #             )
+    #             u, v = inflow.InflowParser.inflow_budgets(self)
 
-        else:
-            u, v = inflow.InflowParser.inflow_budgets(self)
+    #     else:
+    #         u, v = inflow.InflowParser.inflow_budgets(self)
 
-        # return requested information
-        if wInflow:
-            # If this is not nominally zero, then this will need to be fixed.
-            w = np.zeros(self.zLine.shape)
-            return np.array([u, v, w])
+    #     # return requested information
+    #     if wInflow:
+    #         # If this is not nominally zero, then this will need to be fixed.
+    #         w = np.zeros(self.zLine.shape)
+    #         return np.array([u, v, w])
 
-        else:
-            return np.array([u, v])
+    #     else:
+    #         return np.array([u, v])
 
-    def calc_wake(self, offline=False, wInflow=False, overwrite=False):
-        """
-        Computes the wake deficit by subtracting the target inflow from the flow field.
-        # TODO - right now this must compute at minimum uwake and vwake. Fix?
+    # def calc_wake(self, offline=False, wInflow=False, overwrite=False):
+    #     """
+    #     Computes the wake deficit by subtracting the target inflow from the flow field.
+    #     # TODO - right now this must compute at minimum uwake and vwake. Fix?
 
-        Arguments
-        ---------
-        see _get_inflow()
-        overwrite (bool) : re-computes wakes if they are already read in.
+    #     Arguments
+    #     ---------
+    #     see _get_inflow()
+    #     overwrite (bool) : re-computes wakes if they are already read in.
 
-        Returns
-        -------
-        None (updates self.budget[] with 'uwake' and 'vwake' keys)
+    #     Returns
+    #     -------
+    #     None (updates self.budget[] with 'uwake' and 'vwake' keys)
 
-        """
+    #     """
 
-        target_terms = ["uwake", "vwake"]
-        req_terms = ["ubar", "vbar"]  # required budget terms
-        if wInflow:
-            target_terms.append("wwake")
-            req_terms.append("wbar")  # might also need w
+    #     target_terms = ["uwake", "vwake"]
+    #     req_terms = ["ubar", "vbar"]  # required budget terms
+    #     if wInflow:
+    #         target_terms.append("wwake")
+    #         req_terms.append("wbar")  # might also need w
 
-        # check to see if the terms exist already
-        if all(t in self.budget.keys() for t in target_terms):
-            if not overwrite:
-                warnings.warn(
-                    "Wake terms already computed, returning. To compute anyway, use keyword overwrite=True"
-                )
-                return
+    #     # check to see if the terms exist already
+    #     if all(t in self.budget.keys() for t in target_terms):
+    #         if not overwrite:
+    #             warnings.warn(
+    #                 "Wake terms already computed, returning. To compute anyway, use keyword overwrite=True"
+    #             )
+    #             return
 
-        # Need mean velocity fields to be loaded
-        if not all(t in self.budget.keys() for t in req_terms):
-            self.read_budgets(budget_terms=req_terms)
+    #     # Need mean velocity fields to be loaded
+    #     if not all(t in self.budget.keys() for t in req_terms):
+    #         self.read_budgets(budget_terms=req_terms)
 
-        # retrieve inflow
-        if wInflow:
-            u, v, w = self._get_inflow(offline=offline, wInflow=wInflow)
-            self.budget["wwake"] = self.budget["wbar"] - w[np.newaxis, np.newaxis, :]
+    #     # retrieve inflow
+    #     if wInflow:
+    #         u, v, w = self._get_inflow(offline=offline, wInflow=wInflow)
+    #         self.budget["wwake"] = self.budget["wbar"] - w[np.newaxis, np.newaxis, :]
 
-        else:
-            u, v = self._get_inflow(offline=offline, wInflow=wInflow)
+    #     else:
+    #         u, v = self._get_inflow(offline=offline, wInflow=wInflow)
 
-        self.budget["uwake"] = u[np.newaxis, np.newaxis, :] - self.budget["ubar"]
-        self.budget["vwake"] = v[np.newaxis, np.newaxis, :] - self.budget["vbar"]
+    #     self.budget["uwake"] = u[np.newaxis, np.newaxis, :] - self.budget["ubar"]
+    #     self.budget["vwake"] = v[np.newaxis, np.newaxis, :] - self.budget["vbar"]
 
-        self.printv("calc_wake(): Computed wake velocities. ")
+    #     self.printv("calc_wake(): Computed wake velocities. ")
 
     def slice(
         self,
@@ -1305,7 +1296,7 @@ class BudgetIO:
             and additional keys for the slice domain 'x', 'y', 'z', and 'extent'
         """
 
-        if sl is not None: 
+        if sl is not None:
             warnings.warn("Recommended usage: use sl.slice() instead")
             return sl.slice(xlim=xlim, ylim=ylim, zlim=zlim, keys=keys)
 
@@ -1324,7 +1315,7 @@ class BudgetIO:
             self.read_budgets(budget_terms=keys, tidx=tidx, overwrite=overwrite)
             preslice = self.budget
 
-        elif  field is not None:
+        elif field is not None:
             if isinstance(field, Slice) or isinstance(field, dict):
                 # iterate through dictionary of fields
                 if keys is None:
@@ -1390,7 +1381,9 @@ class BudgetIO:
 
         # do the interpolation
         for key in keys:
-            interp_obj = RGI((self.xLine, self.yLine, self.zLine), np.array(self.budget[key]))  # hotfix
+            interp_obj = RGI(
+                (self.xLine, self.yLine, self.zLine), np.array(self.budget[key])
+            )  # hotfix
 
             if make_meshgrid:
                 xiG = np.meshgrid(x, y, z, indexing="ij")
@@ -1501,14 +1494,14 @@ class BudgetIO:
             return None  # TODO - is this lost information? is it useful information?
 
         # retrieves filenames and parses unique integers, returns an array of unique integers
-        filenames = os.listdir(self.dirname)
+        filenames = self.dirname.glob("*")
         runid = self.runid
 
         # searches for the formatting *_t(\d+)* in all filenames
         t_list = [
-            int(re.findall(search_str.format(runid), name)[0])
+            int(re.findall(search_str.format(runid), str(name))[0])
             for name in filenames
-            if re.findall(search_str.format(runid), name)
+            if re.findall(search_str.format(runid), str(name))
         ]
 
         if len(t_list) == 0:
@@ -1571,16 +1564,12 @@ class BudgetIO:
 
         if return_last:  # save time by only reading the final TIDX
             tidx = self.unique_tidx(return_last=return_last)
-            fname = os.path.join(
-                self.dirname, "Run{:02d}_info_t{:06d}.out".format(self.runid, tidx)
-            )
+            fname = self.dirname / f"Run{self.runid:02d}_info_t{tidx:06d}.out"
             t = np.genfromtxt(fname, dtype=None)[0]
             return t
 
         for tidx in self.unique_tidx():
-            fname = os.path.join(
-                self.dirname, "Run{:02d}_info_t{:06d}.out".format(self.runid, tidx)
-            )
+            fname = self.dirname / f"Run{self.runid:02d}_info_t{tidx:06d}.out"
             t = np.genfromtxt(fname, dtype=None)[0]
             times.append(t)
 
@@ -1592,16 +1581,16 @@ class BudgetIO:
         if tidx is None:
             tidx = self.unique_budget_tidx(return_last=False)
 
-        filenames = os.listdir(self.dirname)
+        filenames = self.dirname.glob("*")
         search_str = "Run{:02d}.*budget.*_t{:06d}_n(\d+).*"
 
         # the following is not efficient, but sufficient for now
         n_list = []
         for tid in tidx:
             _n = [
-                int(re.findall(search_str.format(self.runid, tid), name)[0])
+                int(re.findall(search_str.format(self.runid, tid), str(name))[0])
                 for name in filenames
-                if re.findall(search_str.format(self.runid, tid), name)
+                if re.findall(search_str.format(self.runid, tid), str(name))
             ]
             n_list.append(_n[0])
 
@@ -1631,23 +1620,23 @@ class BudgetIO:
         """
         Checks file names for which budgets were output.
         """
-        filenames = os.listdir(self.dirname)
+        filenames = self.dirname.glob("*")
 
         if self.associate_padeops:
             runid = self.runid
             # capturing *_budget(\d+)* in filenames
             budget_list = [
-                int(re.findall("Run{:02d}.*_budget(\d+).*".format(runid), name)[0])
+                int(re.findall("Run{:02d}.*_budget(\d+).*".format(runid), str(name))[0])
                 for name in filenames
-                if re.findall("Run{:02d}.*_budget(\d+).*".format(runid), name)
+                if re.findall("Run{:02d}.*_budget(\d+).*".format(runid), str(name))
             ]
         else:
             if self.associate_npz:
-                filename = self.dirname + os.sep + self.filename_budgets + ".npz"
+                filename = self.dirname / self.fname_budgets.format("npz")
                 with np.load(filename) as npz:
                     t_list = npz.files  # load all the budget filenames
             if self.associate_mat:
-                filename = self.dirname + os.sep + self.filename_budgets + ".mat"
+                filename = self.dirname / self.fname_budgets.format("mat")
                 ret = loadmat(filename)
                 t_list = [
                     key for key in ret if key[0] != "_"
@@ -1701,7 +1690,7 @@ class BudgetIO:
         # find budgets by name matching with PadeOps output conventions
         if self.associate_padeops:
 
-            filenames = os.listdir(self.dirname)
+            filenames = self.dirname.glob("*")
             runid = self.runid
 
             tup_list = []
@@ -1711,45 +1700,46 @@ class BudgetIO:
                 terms = [
                     int(
                         re.findall(
-                            "Run{:02d}_budget{:01d}_term(\d+).*".format(runid, b), name
+                            "Run{:02d}_budget{:01d}_term(\d+).*".format(runid, b),
+                            str(name),
                         )[0]
                     )
                     for name in filenames
                     if re.findall(
-                        "Run{:02d}_budget{:01d}_term(\d+).*".format(runid, b), name
+                        "Run{:02d}_budget{:01d}_term(\d+).*".format(runid, b), str(name)
                     )
                 ]
                 tup_list += [((b, term)) for term in set(terms)]  # these are all tuples
 
-                # wake budgets:
-                wake_budgets = (1, 2, 3)
-                if include_wakes and b == 5:
-                    terms = [
-                        int(
-                            re.findall(
-                                "Run{:02d}_budget{:01d}_term(\d+).*".format(runid, 0),
-                                name,
-                            )[0]
-                        )
-                        for name in filenames
-                        if re.findall(
-                            "Run{:02d}_budget{:01d}_term(\d+).*".format(runid, 0), name
-                        )
-                    ]  # read from mean budgets
+                # # wake budgets:
+                # wake_budgets = (1, 2, 3)
+                # if include_wakes and b == 5:
+                #     terms = [
+                #         int(
+                #             re.findall(
+                #                 "Run{:02d}_budget{:01d}_term(\d+).*".format(runid, 0),
+                #                 str(name),
+                #             )[0]
+                #         )
+                #         for name in filenames
+                #         if re.findall(
+                #             "Run{:02d}_budget{:01d}_term(\d+).*".format(runid, 0), str(name)
+                #         )
+                #     ]  # read from mean budgets
 
-                    tup_list += [((b, term)) for term in wake_budgets if term in terms]
+                #     tup_list += [((b, term)) for term in wake_budgets if term in terms]
 
             # convert tuples to keys
             t_list = [BudgetIO.key.inverse[key][0] for key in tup_list]
         # find budgets matching .npz convention in write_npz()
         else:
             if self.associate_npz:
-                filename = self.dirname + os.sep + self.filename_budgets + ".npz"
+                filename = self.dirname / self.fname_budgets.format("npz")
                 with np.load(filename) as npz:
                     all_terms = npz.files
 
             elif self.associate_mat:
-                filename = self.dirname + os.sep + self.filename_budgets + ".mat"
+                filename = self.dirname / self.fname_budgets.format("mat")
                 ret = loadmat(filename)
                 all_terms = [
                     key for key in ret if key[0] != "_"
@@ -1799,8 +1789,9 @@ class BudgetIO:
 
         for tidx in tidx_list:
             for lab in field_terms:
-                fname = "{:s}/Run{:02d}_t{:06d}_{:s}{:05d}.pl{:s}".format(
-                    self.dirname, self.runid, tidx, "x", xid, lab
+                fname = (
+                    self.dirname
+                    / f"Run{self.runid:02d}_t{tidx:06d}_{'x':s}{xid:05d}.pl{lab:s}"
                 )
 
                 key_name = "{:s}_{:d}".format(lab, tidx)
@@ -1849,8 +1840,9 @@ class BudgetIO:
 
         for tidx in tidx_list:
             for lab in field_terms:
-                fname = "{:s}/Run{:02d}_t{:06d}_{:s}{:05d}.pl{:s}".format(
-                    self.dirname, self.runid, tidx, "y", yid, lab
+                fname = (
+                    self.dirname
+                    / f"Run{self.runid:02d}_t{tidx:06d}_{'y':s}{yid:05d}.pl{lab:s}"
                 )
 
                 key_name = "{:s}_{:d}".format(lab, tidx)
@@ -1870,7 +1862,7 @@ class BudgetIO:
             ):  # if this is actually a slice (not a number), then add it to the extents
                 ext += [np.min(sl[term]), np.max(sl[term])]
 
-        sl["extent"] = ext  #TODO: make into Slice() object
+        sl["extent"] = ext  # TODO: make into Slice() object
 
         return sl
 
@@ -1899,8 +1891,9 @@ class BudgetIO:
 
         for tidx in tidx_list:
             for lab in field_terms:
-                fname = "{:s}/Run{:02d}_t{:06d}_{:s}{:05d}.pl{:s}".format(
-                    self.dirname, self.runid, tidx, "z", zid, lab
+                fname = (
+                    self.dirname
+                    / f"Run{self.runid:02d}_t{tidx:06d}_{'z':s}{zid:05d}.pl{lab:s}"
                 )
 
                 key_name = "{:s}_{:d}".format(lab, tidx)
@@ -1935,11 +1928,11 @@ class BudgetIO:
         turb (int) : Turbine number. Default 1
         """
         if prop == "power":
-            fstr = "/Run{:02d}_t{:06d}_turbP{:02}.pow"
+            fstr = "Run{:02d}_t{:06d}_turbP{:02}.pow"
         elif prop == "uvel":
-            fstr = "/Run{:02d}_t{:06d}_turbU{:02}.vel"
+            fstr = "Run{:02d}_t{:06d}_turbU{:02}.vel"
         elif prop == "vvel":
-            fstr = "/Run{:02d}_t{:06d}_turbV{:02}.vel"
+            fstr = "Run{:02d}_t{:06d}_turbV{:02}.vel"
         else:
             raise ValueError(
                 "_read_turb_prop(): `prop` property must be 'power', 'uvel', or 'vvel'"
@@ -1951,7 +1944,7 @@ class BudgetIO:
             except ValueError as e:  # TODO - Fix this!!
                 tid = self.unique_tidx(return_last=True)
 
-        fname = self.dirname + fstr.format(self.runid, tid, turb)
+        fname = self.dirname / fstr.format(self.runid, tid, turb)
         self.printv("\tReading", fname)
 
         ret = np.genfromtxt(fname, dtype=float)  # read fortran ASCII output file
@@ -1976,11 +1969,11 @@ class BudgetIO:
 
         if not self.associate_padeops:  # read from saved files
             if self.associate_mat:
-                fname = self.dirname + os.sep + self.filename + "_metadata.mat"
+                fname = self.dirname / self.fname_meta.format("mat")
                 tmp = loadmat(fname)
 
             elif self.associate_npz:
-                fname = self.dirname + os.sep + self.filename + "_metadata.npz"
+                fname = self.dirname / self.fname_meta.format("npz")
                 tmp = np.load(fname)
             else:
                 raise AttributeError("read_turb_property(): How did you get here? ")

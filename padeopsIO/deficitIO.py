@@ -41,28 +41,28 @@ class DeficitIO(pio.BudgetIO):
         """
         Checks file names for which budgets were output.
         """
-        filenames = os.listdir(self.dir_name)
+        filenames = self.dirname.glob("*")
 
         if self.associate_padeops:
             runid = self.runid
             # capturing *_budget(\d+)* in filenames
             budget_list = [
                 int(
-                    re.findall("Run{:02d}.*_deficit_budget(\d+).*".format(runid), name)[
+                    re.findall("Run{:02d}.*_deficit_budget(\d+).*".format(runid), str(name))[
                         0
                     ]
                 )
                 for name in filenames
-                if re.findall("Run{:02d}.*_deficit_budget(\d+).*".format(runid), name)
+                if re.findall("Run{:02d}.*_deficit_budget(\d+).*".format(runid), str(name))
             ]
 
         else:
             if self.associate_npz:
-                filename = self.dir_name + os.sep + self.filename_budgets + ".npz"
+                filename = self.dirname / self.fname_budgets.format("npz")
                 with np.load(filename) as npz:
                     t_list = npz.files  # load all the budget filenames
             if self.associate_mat:
-                filename = self.dir_name + os.sep + self.filename_budgets + ".mat"
+                filename = self.dirname / self.fname_budgets.format("mat")
                 ret = loadmat(filename)
                 t_list = [
                     key for key in ret if key[0] != "_"
@@ -118,7 +118,7 @@ class DeficitIO(pio.BudgetIO):
         # find budgets by name matching with PadeOps output conventions
         if self.associate_padeops:
 
-            filenames = os.listdir(self.dir_name)
+            filenames = os.listdir(self.dirname)
             runid = self.runid
 
             tup_list = []
@@ -195,12 +195,12 @@ class DeficitIO(pio.BudgetIO):
         # find budgets matching .npz convention in write_npz()
         else:
             if self.associate_npz:
-                filename = self.dir_name + os.sep + self.filename_budgets + ".npz"
+                filename = self.dirname / self.fname_budgets.format("npz")
                 with np.load(filename) as npz:
                     all_terms = npz.files
 
             elif self.associate_mat:
-                filename = self.dir_name + os.sep + self.filename_budgets + ".mat"
+                filename = self.dirname / self.fname_budgets.format("mat")
                 ret = loadmat(filename)
                 all_terms = [
                     key for key in ret if key[0] != "_"
@@ -261,22 +261,12 @@ class DeficitIO(pio.BudgetIO):
                     term = term % 10
                     if term == 0:
                         term = 10
-                searchstr = (
-                    self.dir_name
-                    + "/Run{:02d}_deficit_budget{:01d}_{:02d}_term{:02d}_t{:06d}_*.s3D".format(
-                        self.runid, budget, component, term, tidx
-                    )
-                )
-                u_fname = glob.glob(searchstr)[0]
+                u_fname = self.dirname / f"Run{self.runid:02d}_deficit_budget{budget:01d}_{component:02d}_term{term:02d}_t{tidx:06d}_*.s3D"
+                # u_fname = glob.glob(searchstr)[0]
 
             else:
-                searchstr = (
-                    self.dir_name
-                    + "/Run{:02d}_deficit_budget{:01d}_term{:02d}_t{:06d}_*.s3D".format(
-                        self.runid, budget, term, tidx
-                    )
-                )
-                u_fname = glob.glob(searchstr)[0]
+                u_fname = self.dirname / f"Run{self.runid:02d}_deficit_budget{budget:01d}_term{term:02d}_t{tidx:06d}_*.s3D"
+                # u_fname = glob.glob(searchstr)[0]
 
             self.budget_n = int(
                 re.findall(".*_t\d+_n(\d+)", u_fname)[0]
@@ -306,18 +296,18 @@ class DeficitIO(pio.BudgetIO):
         # TODO: fix for .npz
 
         # retrieves filenames and parses unique integers, returns an array of unique integers
-        filenames = os.listdir(self.dir_name)
+        filenames = self.dirname.glob("*")
         runid = self.runid
 
         # searches for the formatting *_t(\d+)* in budget filenames
         t_list = [
             int(
-                re.findall("Run{:02d}.*deficit_budget.*_t(\d+).*".format(runid), name)[
+                re.findall("Run{:02d}.*deficit_budget.*_t(\d+).*".format(runid), str(name))[
                     0
                 ]
             )
             for name in filenames
-            if re.findall("Run{:02d}.*deficit_budget.*_t(\d+).*".format(runid), name)
+            if re.findall("Run{:02d}.*deficit_budget.*_t(\d+).*".format(runid), str(name))
         ]
 
         if len(t_list) == 0:
