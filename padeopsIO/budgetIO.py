@@ -972,9 +972,7 @@ class BudgetIO:
         """
 
         if tidx is None:
-            if (
-                self.budget or self.budget_tidx is not None
-            ):  # empty dictionary evaluates to False in python
+            if (self.budget or self.budget_tidx is not None):  
                 # if there are budgets loaded, continue loading from that TIDX
                 tidx = self.budget_tidx
             else:
@@ -1089,8 +1087,16 @@ class BudgetIO:
         elif budget_terms == "all":
             budget_terms = self.existing_terms(include_wakes=include_wakes)
 
-        elif isinstance(budget_terms, str) and budget_terms in BudgetIO.key:
+        elif isinstance(budget_terms, str) and budget_terms in self.key:
             budget_terms = [budget_terms]  # cast to a list
+
+        elif 'budget' in budget_terms and any(chr.isdigit() for chr in budget_terms):
+            budgetnum = re.findall('[0-5]', budget_terms)
+            if len(budgetnum) < 1 or len(budgetnum) > 1:
+                raise AttributeError('read_budgets(): budget_terms incorrectly specified. \n \
+                                     String should contain a single number from 0-5, e.g. "budget0".')
+            else:
+                budget_terms = [term for term in self.key if self.key[term][0] == int(budgetnum[0])]
 
         elif type(budget_terms) == str:
             warnings.warn(
@@ -1100,18 +1106,17 @@ class BudgetIO:
 
         # parse through terms: they are either 1) valid, 2) missing (but valid keys), or 3) invalid (not in BudgetIO.key)
         existing_keys = self.existing_terms(include_wakes=include_wakes)
-        existing_tup = [
-            BudgetIO.key[key] for key in existing_keys
-        ]  # corresponding associated tuples (#, #)
+        # corresponding associated tuples (#, #)
+        existing_tup = [self.key[key] for key in existing_keys]
 
         valid_keys = [t for t in budget_terms if t in existing_keys]
         missing_keys = [
-            t for t in budget_terms if t not in existing_keys and t in BudgetIO.key
+            t for t in budget_terms if t not in existing_keys and t in self.key
         ]
         invalid_terms = [
             t
             for t in budget_terms
-            if t not in BudgetIO.key and t not in BudgetIO.key.inverse
+            if t not in self.key and t not in self.key.inverse
         ]
 
         valid_tup = [
@@ -1120,19 +1125,19 @@ class BudgetIO:
         missing_tup = [
             tup
             for tup in budget_terms
-            if tup not in existing_tup and tup in BudgetIO.key.inverse
+            if tup not in existing_tup and tup in self.key.inverse
         ]
 
         # now combine existing valid keys and valid tuples, removing any duplicates
         valid_terms = set(
-            valid_keys + [BudgetIO.key.inverse[tup][0] for tup in valid_tup]
+            valid_keys + [self.key.inverse[tup][0] for tup in valid_tup]
         )  # combine and remove duplicates
         missing_terms = set(
-            missing_keys + [BudgetIO.key.inverse[tup][0] for tup in missing_tup]
+            missing_keys + [self.key.inverse[tup][0] for tup in missing_tup]
         )
 
         # generate the key
-        key_subset = {key: BudgetIO.key[key] for key in valid_terms}
+        key_subset = {key: self.key[key] for key in valid_terms}
 
         # warn the user if some requested terms did not exist
         if len(key_subset) == 0:
@@ -1300,22 +1305,26 @@ class BudgetIO:
             and additional keys for the slice domain 'x', 'y', 'z', and 'extent'
         """
 
-        if sl is None:
-            x, y, z = self.x, self.y, self.z
-        else:
+        if sl is not None: 
             warnings.warn("Recommended usage: use sl.slice() instead")
             return sl.slice(xlim=xlim, ylim=ylim, zlim=zlim, keys=keys)
 
         preslice = {}
 
-        # TODO: clean up this section of code
+        # parse what field arrays to slice into
         if field_terms is not None:
             # read fields
             self.read_fields(field_terms=field_terms, tidx=tidx)
-            field = self.field
+            preslice = self.field
+            keys = field_terms
 
-        # parse what field arrays to slice into
-        if field is not None:
+        elif budget_terms is not None:
+            # read budgets
+            keys = self._parse_budget_terms(budget_terms)
+            self.read_budgets(budget_terms=keys, tidx=tidx, overwrite=overwrite)
+            preslice = self.budget
+
+        elif  field is not None:
             if isinstance(field, Slice) or isinstance(field, dict):
                 # iterate through dictionary of fields
                 if keys is None:
@@ -1325,12 +1334,6 @@ class BudgetIO:
                 preslice = {"field": field}
                 keys = ["field"]
 
-        elif budget_terms is not None:
-            # read budgets
-            keys = self._parse_budget_terms(budget_terms)
-            self.read_budgets(budget_terms=keys, tidx=tidx, overwrite=overwrite)
-            preslice = {key: self.budget[key] for key in keys}
-
         else:
             warnings.warn(
                 "BudgetIO.slice(): either budget_terms= or field= must be initialized."
@@ -1338,7 +1341,7 @@ class BudgetIO:
             return None
 
         return Slice(preslice, x=self.x, y=self.y, z=self.z).slice(
-            xlim=xlim, ylim=ylim, zlim=zlim
+            xlim=xlim, ylim=ylim, zlim=zlim, keys=keys
         )
 
     def islice(

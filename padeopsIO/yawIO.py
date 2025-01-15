@@ -1,3 +1,10 @@
+"""
+An extension of BudgetIO which allows fields to be rotated. 
+
+Kirby Heck
+c. 2023
+"""
+
 import numpy as np
 import warnings
 

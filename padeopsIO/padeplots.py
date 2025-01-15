@@ -1,3 +1,10 @@
+"""
+Basic plotting functionality. 
+
+Kirby Heck
+c. 2022
+"""
+
 import matplotlib.pyplot as plt
 import numpy as np
 

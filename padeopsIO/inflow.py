@@ -2,6 +2,8 @@
 Functions for a BudgetIO object to extract the inflow profile from offline 
 computation given the inflow parameters, or from the time-averaged velocity 
 inlet profiles. 
+
+Deprecated 2025 Jan 15
 """
 
 import warnings
