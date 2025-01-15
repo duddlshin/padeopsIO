@@ -70,6 +70,7 @@ def get_key():
         'wT': (0, 29), 
         'TT': (0, 30), 
         'wb': (0, 31), 
+        'wb': (0, 31), 
         # BUDGET 1 TERMS: (momentum)
         'DuDt': (1, 1),  # x-advection
         'dpdx': (1, 2),  # x-pressure gradient

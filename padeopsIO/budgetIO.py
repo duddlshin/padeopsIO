@@ -356,25 +356,25 @@ class BudgetIO:
 
         self.nTurb = self.n_turb  # included for legacy - REMOVE
 
-        # PHYSICS:
-        if key_search_r(self.input_nml, "isinviscid"):  # boolean
-            self.Re = np.Inf
-        else:
-            self.Re = self.input_nml["physics"]["re"]
+        # PHYSICS: 
+        if self.input_nml['physics']['isinviscid']:  # boolean
+            self.Re = np.inf
+        else: 
+            self.Re = self.input_nml['physics']['re']
 
-        if key_search_r(self.input_nml, "usecoriolis"):
-            self.Ro = key_search_r(self.input_nml, "ro")
-            self.lat = key_search_r(self.input_nml, "latitude")
-            self.Ro_f = self.Ro / (2 * np.sin(self.lat * np.pi / 180))
-        else:
-            self.Ro = np.Inf
+        if self.input_nml['physics']['usecoriolis']: 
+            self.Ro = key_search_r(self.input_nml, 'ro') 
+            self.lat = key_search_r(self.input_nml, 'latitude')
+            self.Ro_f = self.Ro / (2*np.cos(self.lat*np.pi/180))
+        else: 
+            self.Ro = np.inf
 
-        if key_search_r(self.input_nml, "isstratified"):
-            self.Fr = key_search_r(self.input_nml, "fr")
-        else:
-            self.Fr = np.Inf
-
-        self.galpha = key_search_r(self.input_nml, "g_alpha")
+        if key_search_r(self.input_nml, 'isstratified'): 
+            self.Fr = key_search_r(self.input_nml, 'fr')
+        else: 
+            self.Fr = np.inf
+        
+        self.galpha = key_search_r(self.input_nml, 'g_alpha')
 
     def _load_grid(
         self, x=None, y=None, z=None, origin=(0, 0, 0), normalize_origin=None
