@@ -261,7 +261,7 @@ class BudgetIO:
         if self.associate_budgets:
             self.last_n = self.last_budget_n()  # last tidx with an associated budget
             self.budget_tidx = (
-                self.unique_budget_tidx()
+                self.unique_budget_tidx(return_last=True)
             )  # but may be changed by the user
             self.budget_n = self.last_n
 
@@ -862,9 +862,7 @@ class BudgetIO:
         loaded_keys = self.budget.keys()
         self.budget = {}  # empty dictionary
         self.budget_n = None
-        self.budget_tidx = (
-            None  # self.unique_budget_tidx(return_last=True)  # reset to final TIDX
-        )
+        self.budget_tidx = None  # reset to final TIDX
 
         self.printv("clear_budgets(): Cleared loaded budgets: {}".format(loaded_keys))
 
@@ -995,7 +993,7 @@ class BudgetIO:
             searchstr = f"Run{self.runid:02d}_budget{budget:01d}_term{term:02d}_t{tidx:06d}_*.s3D"
             try:
                 u_fname = next(self.dirname.glob(searchstr))
-            except IndexError as e:
+            except StopIteration as e:
                 raise FileNotFoundError(f"No files found at {searchstr}")
 
             self.budget_n = int(
@@ -1301,12 +1299,14 @@ class BudgetIO:
             # read fields
             self.read_fields(field_terms=field_terms, tidx=tidx)
             preslice = self.field
+            field_terms = [field_terms] if isinstance(field_terms, str) else field_terms
             keys = [term for term in field_terms if term in self.field.keys()]
 
         elif budget_terms is not None:
             # read budgets
             self.read_budgets(budget_terms=budget_terms, tidx=tidx, overwrite=overwrite)
             preslice = self.budget
+            budget_terms = [budget_terms] if isinstance(budget_terms, str) else budget_terms
             keys = [term for term in budget_terms if term in self.budget.keys()]
 
 
@@ -1315,7 +1315,7 @@ class BudgetIO:
 
         else:
             warnings.warn(
-                "BudgetIO.slice(): either budget_terms= or field= must be initialized."
+                "BudgetIO.slice(): either budget_terms= or field_terms= must be initialized."
             )
             return None
 
@@ -1686,7 +1686,7 @@ class BudgetIO:
         # find budgets by name matching with PadeOps output conventions
         if self.associate_padeops:
 
-            filenames = self.dirname.glob("*")
+            filenames = self.dirname.glob("*budget*")
             runid = self.runid
 
             tup_list = []

@@ -9,7 +9,6 @@ import numpy as np
 import os
 import re
 import warnings
-import glob
 from scipy.io import loadmat
 
 from . import budgetIO as pio
@@ -72,9 +71,6 @@ class DeficitIO(pio.BudgetIO):
 
         if len(budget_list) == 0:
             warnings.warn("existing_budgets(): No associated budget files found. ")
-
-        if 0 in budget_list:
-            budget_list.append(5)  # wake budgets can be recovered from mean budgets
 
         return list(np.unique(budget_list))
 
@@ -261,15 +257,18 @@ class DeficitIO(pio.BudgetIO):
                     term = term % 10
                     if term == 0:
                         term = 10
-                u_fname = self.dirname / f"Run{self.runid:02d}_deficit_budget{budget:01d}_{component:02d}_term{term:02d}_t{tidx:06d}_*.s3D"
-                # u_fname = glob.glob(searchstr)[0]
+                searchstr = f"Run{self.runid:02d}_deficit_budget{budget:01d}_{component:02d}_term{term:02d}_t{tidx:06d}_*.s3D"
 
             else:
-                u_fname = self.dirname / f"Run{self.runid:02d}_deficit_budget{budget:01d}_term{term:02d}_t{tidx:06d}_*.s3D"
-                # u_fname = glob.glob(searchstr)[0]
+                searchstr = f"Run{self.runid:02d}_deficit_budget{budget:01d}_term{term:02d}_t{tidx:06d}_*.s3D"
+
+            try:
+                u_fname = next(self.dirname.glob(searchstr))
+            except StopIteration as e:
+                raise FileNotFoundError(f"No matching files found at {self.dirname / searchstr}")
 
             self.budget_n = int(
-                re.findall(".*_t\d+_n(\d+)", u_fname)[0]
+                re.findall(".*_t\d+_n(\d+)", str(u_fname))[0]
             )  # extract n from string
             self.budget_tidx = tidx
 
@@ -280,43 +279,26 @@ class DeficitIO(pio.BudgetIO):
 
         if self.verbose and len(key_subset) > 0:
             print(
-                "PadeOpsViz loaded the budget fields at time:" + "{:.06f}".format(tidx)
+                "PadeOpsViz loaded the deficit budget fields at time:" + "{:.06f}".format(tidx)
             )
 
-    def unique_budget_tidx(self, return_last=True):
+    def unique_budget_tidx(self, return_last=False):
         """
         Pulls all the unique tidx values from a directory.
 
         Parameters
         ----------
         return_last (bool) : If False, returns only the largest TIDX associated with budgets.
-            Else, returns an entire list of unique tidx associated with budgets. Default True
+            Else, returns an entire list of unique tidx associated with budgets. Default False
         """
 
         # TODO: fix for .npz
 
-        # retrieves filenames and parses unique integers, returns an array of unique integers
-        filenames = self.dirname.glob("*")
-        runid = self.runid
+        return self.unique_tidx(
+            return_last=return_last, search_str="Run{:02d}.*deficit_budget.*_t(\d+).*"
+        )
 
-        # searches for the formatting *_t(\d+)* in budget filenames
-        t_list = [
-            int(
-                re.findall("Run{:02d}.*deficit_budget.*_t(\d+).*".format(runid), str(name))[
-                    0
-                ]
-            )
-            for name in filenames
-            if re.findall("Run{:02d}.*deficit_budget.*_t(\d+).*".format(runid), str(name))
-        ]
-
-        if len(t_list) == 0:
-            raise ValueError("No budget times found. ")
-
-        if return_last:
-            return np.max(t_list)
-        else:
-            return np.unique(t_list)
+    # =============== TODO: MOVE BUDGET COMPUTATION TO SEPARATE FILE ===============
 
     def grad_stress_calc(self, tidx=None, Lref=1):
         """
@@ -463,20 +445,8 @@ class DeficitIO(pio.BudgetIO):
         """
         Calculate term sin the wake tKE budget
         """
-        # read in necessary terms for deficit budget
-        def_budget_terms = [term for term in self.key if self.key[term][0] == 3]
-        # self.read_budgets(budget_terms=def_budget_terms)
-        # def_budget0_terms = ['delta_u', 'delta_v', 'delta_w']
-        # self.read_budgets(budget_terms=def_budget0_terms)
-
         # # read in necessary terms for precursor and primary budgets
         budget_terms = [term for term in pre.key if pre.key[term][0] == 3]
-        # pre.read_budgets(budget_terms=budget_terms)
-        # prim.read_budgets(budget_terms=budget_terms)
-
-        # budget0_terms = ['ubar', 'vbar', 'wbar', 'uu', 'vv', 'ww']
-        # pre.read_budgets(budget_terms=budget0_terms)
-        # prim.read_budgets(budget_terms=budget0_terms)
 
         dx = self.dx
         dy = self.dy
