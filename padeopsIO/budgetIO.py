@@ -1458,12 +1458,14 @@ class BudgetIO:
             self.slice(budget_terms=budget_terms, **_slice_kwargs),
             self.slice(field_terms=field_terms, **_slice_kwargs)
         ]))
+        
+        axes = [axis for axis in ["x", "y"] if axis in self.field.dims]
         if len(to_merge) == 0: 
             return None
         elif len(to_merge) == 1: 
-            return to_merge[0].mean(("x", "y"))
+            return to_merge[0].mean(axes)
         else: 
-            return xr.merge(to_merge).mean(("x", "y"))
+            return xr.merge(to_merge).mean(axes)
 
     def unique_tidx(self, return_last=False, search_str="Run{:02d}.*_t(\d+).*.out"):
         """

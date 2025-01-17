@@ -208,7 +208,7 @@ class Slicer:
     def __init__(self, xarray_obj):
         self._obj = xarray_obj
 
-    def __call__(self, xlim=None, ylim=None, zlim=None, keys=None, **kwargs):
+    def __call__(self, xlim=None, ylim=None, zlim=None, keys=None, **extra_kwargs):
         """Returns a slice of the original array"""
         xids, yids, zids = get_xids(
             x=self._obj.grid.x.to_numpy(),
@@ -220,11 +220,16 @@ class Slicer:
             return_slice=True,
             return_none=True,
         )
+        kwargs = dict(x=xids, y=yids, z=zids)
+        valid_indexers = {
+            dim: idx for dim, idx in kwargs.items() if idx is not None and dim in self._obj.dims
+        }
+
         if isinstance(self._obj, xr.DataArray):
-            return self._obj.isel(x=xids, y=yids, z=zids).sel(**kwargs)
+            return self._obj.isel(**valid_indexers).sel(**extra_kwargs)
         else:
             keys = keys or self._obj.keys()
-            return self._obj.isel(x=xids, y=yids, z=zids)[keys].sel(**kwargs)
+            return self._obj.isel(**valid_indexers)[keys].sel(**extra_kwargs)
 
 
 @xr.register_dataarray_accessor("imshow")
