@@ -12,6 +12,7 @@ Kirby Heck
 """
 
 import numpy as np
+import xarray as xr
 import re
 import warnings
 from scipy.io import savemat, loadmat
@@ -22,7 +23,7 @@ from . import budgetkey, turbineArray
 from .utils.io_utils import structure_to_dict, key_search_r
 from .utils.nml_utils import parser
 from .utils import tools
-from .gridslice import Slice, Grid3, get_xids
+from .gridslice import get_xids, GridDataset
 
 
 class BudgetIO:
@@ -158,7 +159,7 @@ class BudgetIO:
         else:
             raise AttributeError("__init__(): ")
 
-        self.budget = {}  # empty dictionary
+        # self.budget = {}  # empty dictionary
 
         if read_budgets is not None:
             # if read_budgets passed in as keyword argument, read budgets on initialization
@@ -235,7 +236,7 @@ class BudgetIO:
         self.printv(f"BudgetIO initialized using info files at time: {self.time:.06f}")
 
         # try to associate fields
-        self.field = {}
+        # self.field = {}
         try:
             self.last_tidx = self.unique_tidx(
                 return_last=True
@@ -398,7 +399,9 @@ class BudgetIO:
             z = (0.5 + np.arange(gridvars["nz"])) * gridvars["lz"] / gridvars["nz"]
 
         # initialize grid variable
-        self.grid = Grid3(x=x, y=y, z=z)
+        self.field = GridDataset(x=x, y=y, z=z)
+        self.budget = GridDataset(x=x, y=y, z=z)
+        self.grid = self.field.grid  # Grid3(x=x, y=y, z=z)
         # copy grid keys into the namespace of `self`
         for xi in ["x", "y", "z"]:
             for key in ["{:s}", "L{:s}", "d{:s}", "n{:s}"]:
@@ -418,7 +421,7 @@ class BudgetIO:
 
         self.associate_grid = True
 
-    def normalize_origin(self, origin):
+    def normalize_origin(self, origin=None):
         """
         Normalize the origin to point `origin` (x, y, z)
 
@@ -442,21 +445,19 @@ class BudgetIO:
                         "Attempted to normalize origin to `turbine`, but no turbines associated"
                     )
                 return
-
-        if origin is not None:
-            self.xLine -= origin[0] - self.origin[0]
-            self.yLine -= origin[1] - self.origin[1]
-            self.zLine -= origin[2] - self.origin[2]
-            self.normalized_xyz = True
-            self.origin = origin
-
-        else:
-            # this places the origin back at the original location
-            self.xLine += self.origin[0]
-            self.yLine += self.origin[1]
-            self.zLine += self.origin[2]
+        
+        if origin is None: 
             self.normalized_xyz = False
-            self.origin = (0, 0, 0)
+            origin = (0, 0, 0)
+        else: 
+            self.normalized_xyz = True
+        
+        # move the origin now: 
+        for ds in [self.field, self.budget]: 
+            ds.coords["x"] = ds["x"] - (origin[0] - self.origin[0])
+            ds.coords["y"] = ds["y"] - (origin[1] - self.origin[1])
+            ds.coords["z"] = ds["z"] - (origin[2] - self.origin[2])
+        self.origin = origin
 
     def _init_npz(self, normalize_origin=False):
         """
@@ -835,9 +836,6 @@ class BudgetIO:
                 (self.nx, self.ny, self.nz), order="F"
             )  # reshape into a 3D array
 
-        # cast to Slice() object
-        self.field = Slice(self.field, x=self.x, y=self.y, z=self.z)
-
         self.print(
             f"BudgetIO loaded fields {str(list(terms)):s} at tidx: {self.tidx:d}, time: {self.time:.06f}"
         )
@@ -952,9 +950,6 @@ class BudgetIO:
         else:
             raise AttributeError("read_budgets(): No budgets linked. ")
 
-        # cast to Slice() object
-        self.budget = Slice(self.budget, x=self.x, y=self.y, z=self.z)
-
         if len(key_subset) > 0:
             self.printv("read_budgets: Successfully loaded budgets. ")
 
@@ -1065,12 +1060,16 @@ class BudgetIO:
         Arguments
         ---------
         budget_terms : list of strings or string, see above
+        REMOVE - 
         include_wakes : bool, optional
             includes wake budgets if True, default False.
         """
 
         # add string shortcuts here... # TODO move shortcuts to budgetkey.py?
-        if budget_terms == "current":
+        if budget_terms is None: 
+            return dict()
+        
+        elif budget_terms == "current":
             budget_terms = list(self.budget.keys())
 
         elif budget_terms == "all":
@@ -1151,8 +1150,6 @@ class BudgetIO:
                     invalid_terms
                 )
             )
-
-        # TODO - fix warning messages for the wakes
 
         return key_subset
 
@@ -1259,7 +1256,7 @@ class BudgetIO:
         ylim=None,
         zlim=None,
         overwrite=False,
-        round_extent=False,
+        **sel_kwargs, 
     ):
         """
         Returns a slice of the requested budget term(s) as a dictionary.
@@ -1273,8 +1270,8 @@ class BudgetIO:
             fields similar to self.field[] or self.budget[]
         field_terms: list
             read fields from read_fields().
-        sl : Slice, optional.
-            Slice object from self.slice()
+        sl : GridDataset, optional.
+            GridDataset or xarray Dataset from self.slice()
         keys : list
             fields in slice `sl`. Keys to slice into from the input slice `sl`
         tidx : int
@@ -1286,44 +1283,35 @@ class BudgetIO:
             then the entire domain extent is sliced.
         overwrite : bool
             Overwrites loaded budgets, see read_budgets(). Default False
-        round_extent : bool
-            Rounds extents to the nearest integer. Default False
+        sel_kwargs : optional
+            Additional keyword arguments to Dataset.sel()
 
         Returns
         -------
-        slices : dict
-            dictionary organized with all of the sliced fields, keyed by the budget name,
-            and additional keys for the slice domain 'x', 'y', 'z', and 'extent'
+        GridDataset
+            xarray of sliced field variables
         """
 
         if sl is not None:
             warnings.warn("Recommended usage: use sl.slice() instead")
             return sl.slice(xlim=xlim, ylim=ylim, zlim=zlim, keys=keys)
 
-        preslice = {}
-
         # parse what field arrays to slice into
         if field_terms is not None:
             # read fields
             self.read_fields(field_terms=field_terms, tidx=tidx)
             preslice = self.field
-            keys = field_terms
+            keys = [term for term in field_terms if term in self.field.keys()]
 
         elif budget_terms is not None:
             # read budgets
-            keys = self._parse_budget_terms(budget_terms)
-            self.read_budgets(budget_terms=keys, tidx=tidx, overwrite=overwrite)
+            self.read_budgets(budget_terms=budget_terms, tidx=tidx, overwrite=overwrite)
             preslice = self.budget
+            keys = [term for term in budget_terms if term in self.budget.keys()]
+
 
         elif field is not None:
-            if isinstance(field, Slice) or isinstance(field, dict):
-                # iterate through dictionary of fields
-                if keys is None:
-                    keys = field.keys()
-                preslice = field
-            else:
-                preslice = {"field": field}
-                keys = ["field"]
+            raise NotImplementedError("Deprecated v1.0.0")
 
         else:
             warnings.warn(
@@ -1331,9 +1319,10 @@ class BudgetIO:
             )
             return None
 
-        return Slice(preslice, x=self.x, y=self.y, z=self.z).slice(
-            xlim=xlim, ylim=ylim, zlim=zlim, keys=keys
-        )
+        if len(keys) == 0: 
+            return None
+
+        return preslice.slice(xlim=xlim, ylim=ylim, zlim=zlim, keys=keys, **sel_kwargs)
 
     def islice(
         self,
@@ -1449,7 +1438,7 @@ class BudgetIO:
 
         return get_xids(**kwargs)
 
-    def xy_avg(self, budget_terms=None, zlim=None, **slice_kwargs):
+    def xy_avg(self, budget_terms=None, field_terms=None, zlim=None, **slice_kwargs):
         """
         xy-averages requested budget terms
 
@@ -1461,15 +1450,20 @@ class BudgetIO:
         slice_kwargs : Any
             Additional keyword arguments, see BudgetIO.slice()
         """
+        # by default, take the whole x,y domain
         _slice_kwargs = dict(xlim=None, ylim=None, zlim=zlim)
         _slice_kwargs.update(slice_kwargs)
-        tmp = self.slice(budget_terms=budget_terms, **_slice_kwargs)
-
-        ret = {}
-        for key in tmp.keys():
-            ret[key] = np.mean(tmp[key], axis=tuple(range(tmp.ndim - 1)))
-
-        return Slice(ret, z=tmp.grid.z)  # TODO - make functions in Slice() that do this
+        
+        to_merge = list(filter(None, [
+            self.slice(budget_terms=budget_terms, **_slice_kwargs),
+            self.slice(field_terms=field_terms, **_slice_kwargs)
+        ]))
+        if len(to_merge) == 0: 
+            return None
+        elif len(to_merge) == 1: 
+            return to_merge[0].mean(("x", "y"))
+        else: 
+            return xr.merge(to_merge).mean(("x", "y"))
 
     def unique_tidx(self, return_last=False, search_str="Run{:02d}.*_t(\d+).*.out"):
         """

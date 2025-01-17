@@ -14,6 +14,40 @@ from .gridslice_old import Grid3, Slice, SliceData
 labels = key_labels()
 
 
+class GridDataset(xr.Dataset):
+    """
+    Gridded xarray Dataset which always contains axes x, y, z.
+
+    The chief benefit of this derived class is to allow for
+    directly setting keys as numpy arrays (enabling back-compatibility),
+    for example:
+
+    >>> ds = GridDataset(x=x, y=y, z=z)
+    >>> ds['u'] = ufield
+    """
+
+    __slots__ = ()
+
+    def __init__(self, x=None, y=None, z=None, coords=None, **kwargs):
+        coords = coords or dict(x=x, y=y, z=z)
+        super().__init__(coords=coords, **kwargs)
+
+    def __setitem__(self, key, value):
+        if isinstance(value, np.ndarray):
+            if value.ndim != len(self.dims):
+                raise ValueError(
+                    "Number of dimensions of the array does not match the dataset."
+                )
+            # Assign the variable using existing dimensions
+            super().__setitem__(key, (list(self.dims), value))
+        else:
+            super().__setitem__(key, value)
+
+
+# ================== decorators ==================
+
+
+# add "grid" attribute to all xarray Datasets and DataArrays
 @xr.register_dataset_accessor("grid")
 @xr.register_dataarray_accessor("grid")
 class GridAccessor:
@@ -53,19 +87,25 @@ class GridAccessor:
     @property
     def dx(self):
         return (
-            float(self.x[1] - self.x[0]) if self.x.ndim > 0 and self.x.size > 0 else 0
+            float(self.x[1] - self.x[0])
+            if self.x is not None and self.x.ndim > 0 and self.x.size > 0
+            else 0
         )
 
     @property
     def dy(self):
         return (
-            float(self.y[1] - self.y[0]) if self.y.ndim > 0 and self.y.size > 0 else 0
+            float(self.y[1] - self.y[0])
+            if self.y is not None and self.y.ndim > 0 and self.y.size > 0
+            else 0
         )
 
     @property
     def dz(self):
         return (
-            float(self.z[1] - self.z[0]) if self.z.ndim > 0 and self.z.size > 0 else 0
+            float(self.z[1] - self.z[0])
+            if self.z is not None and self.z.ndim > 0 and self.z.size > 0
+            else 0
         )
 
     @property
@@ -103,13 +143,17 @@ class GridAccessor:
             [
                 (float(xi.min()), float(xi.max()))
                 for xi in [self.x, self.y, self.z]
-                if xi.ndim > 0
+                if xi is not None and xi.ndim > 0
             ]
         )
 
     @property
     def xi(self):
-        return [_x.to_numpy() for _x in [self.x, self.y, self.z] if _x.ndim > 0]
+        return [
+            _x.to_numpy()
+            for _x in [self.x, self.y, self.z]
+            if _x is not None and _x.ndim > 0
+        ]
 
     @property
     def shape(self):
@@ -136,15 +180,15 @@ class GridAccessor:
         return {
             key: _x.to_numpy()
             for key, _x in zip(["x", "y", "z"], [self.x, self.y, self.z])
-            if _x.ndim > 0
+            if _x is not None and _x.ndim > 0
         }
 
-    def axis_names(self):
+    def keys(self):
         """Returns non-singleton axis names"""
         return [
             key
             for key, _x in zip(["x", "y", "z"], [self.x, self.y, self.z])
-            if _x.ndim > 0
+            if _x is not None and _x.ndim > 0
         ]
 
     def __repr__(self):
@@ -164,7 +208,7 @@ class Slicer:
     def __init__(self, xarray_obj):
         self._obj = xarray_obj
 
-    def __call__(self, xlim=None, ylim=None, zlim=None, keys=None):
+    def __call__(self, xlim=None, ylim=None, zlim=None, keys=None, **kwargs):
         """Returns a slice of the original array"""
         xids, yids, zids = get_xids(
             x=self._obj.grid.x.to_numpy(),
@@ -176,7 +220,11 @@ class Slicer:
             return_slice=True,
             return_none=True,
         )
-        return self._obj.isel(x=xids, y=yids, z=zids)
+        if isinstance(self._obj, xr.DataArray):
+            return self._obj.isel(x=xids, y=yids, z=zids).sel(**kwargs)
+        else:
+            keys = keys or self._obj.keys()
+            return self._obj.isel(x=xids, y=yids, z=zids)[keys].sel(**kwargs)
 
 
 @xr.register_dataarray_accessor("imshow")
@@ -196,15 +244,19 @@ class XRImshow:
         im = ax.imshow(
             self._obj.T, extent=self._obj.grid.extent, origin="lower", **kwargs
         )
-        axes = self._obj.grid.axis_names()
+        axes = self._obj.grid.keys()
         ax.set_xlabel(labels[axes[0]])
         ax.set_ylabel(labels[axes[1]])
         if cbar:
-            plt.colorbar(im, ax=ax, label=labels[self._obj.name])
+            if self._obj.name in labels.keys(): 
+                label = labels[self._obj.name]
+            else: 
+                label = self._obj.name
+            plt.colorbar(im, ax=ax, label=label)
         return im
 
 
-# ============== helper functions =================
+# ================= helper functions =================
 
 
 def get_xids(
