@@ -2,7 +2,7 @@
 Improved slice data using xarray Datasets. 
 
 Kirby Heck
-2024 July 24
+2025 January 17
 """
 
 import numpy as np
@@ -28,9 +28,13 @@ class GridDataset(xr.Dataset):
 
     __slots__ = ()
 
-    def __init__(self, x=None, y=None, z=None, coords=None, **kwargs):
-        coords = coords or dict(x=x, y=y, z=z)
-        super().__init__(coords=coords, **kwargs)
+    def __init__(self, *args, x=None, y=None, z=None, coords=None, **kwargs):
+        if len(args) > 0 and hasattr(args[0], "coords"): 
+            coords = args[0].coords
+        else: 
+            coords = coords or dict(x=x, y=y, z=z)
+        kwargs.update(coords=coords)
+        super().__init__(*args, **kwargs)
 
     def __setitem__(self, key, value):
         if isinstance(value, np.ndarray):
