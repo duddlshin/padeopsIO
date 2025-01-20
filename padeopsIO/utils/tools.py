@@ -5,14 +5,41 @@ Kirby Heck
 2024 July 15
 """
 
-from pathlib import Path
 import numpy as np
 from scipy.interpolate import interp1d
+from pathlib import Path
+import warnings
 
 from . import io_utils
 
 
-def get_ustar(self=None, logfile=None, crop_budget=True, average=True):
+def get_logfiles(path, search_str="*.o[0-9]*", id=-1): 
+    """
+    Searches for all logfiles formatted "*.o[0-9]" (Stampede3 format)
+    and returns the entire list if `id` is None, otherwise returns 
+    the specific `id` requested. 
+
+    Parameters
+    ----------
+    path : path-like
+        Directory to search for logfiles
+    search_str : str
+        Pattern to attempt to match
+    id : int
+        If multiple logfiles exist, selects this index of the list
+    """
+    logfiles = list(path.glob(search_str))
+
+    if len(logfiles) == 0: 
+        warnings.warn("No logfiles found, returning")
+        return None
+    elif id is None: 
+        return logfiles
+    else: 
+        return logfiles[id]
+
+
+def get_ustar(self=None, logfile=None, search_str="*.o[0-9]*", crop_budget=True, average=True):
     """
     Gleans ustar from the logfile.
 
@@ -21,24 +48,23 @@ def get_ustar(self=None, logfile=None, crop_budget=True, average=True):
     self : BudgetIO object, optional
         if None, then logfile must be a full path (and not a filename)
     logfile : path-like, optional
-        Path to logfile. If None, searches for all files ending in '.o[0-9]*'.
-        Default is None.
+        Path to logfile. 
+    search_str : str, optional
+        String to match. Default: searches for all files ending in '.o[0-9]*'.
     crop_budget : bool, optional
         Crops time axis to budgets. Defaults to True.
     average : bool, optional
         Time averages. Defaults to True.
     """
-    if logfile is None:
-        logfile = "*.o[0-9]*"  # default search
-
-    if self is not None:
-        logfiles = list(Path(self.dir_name).glob(logfile))
-        fname = logfiles[-1]
-    else:
-        fname = Path(logfile)
+    if self is not None: 
+        logfile = get_logfiles(self.dir_name, search_str=search_str, id=-1)
+    elif logfile is not None:
+        logfile = Path(logfile)
+    else: 
+        raise ValueError("get_ustar(): Requires either BudgetIO object `self` or path-like `logfile`.")
 
     # match the last one and read ustar... could fix this later
-    ret = io_utils.query_logfile(fname, search_terms=["u_star", "TIDX", "Time"])
+    ret = io_utils.query_logfile(logfile, search_terms=["u_star", "TIDX", "Time"])
 
     nml = self.input_nml
     if crop_budget and nml["budget_time_avg"]["do_budgets"]:
@@ -64,7 +90,7 @@ def get_uhub(self, z_hub=0, use_fields=False, **slice_kwargs):
         s = self.xy_avg(budget_terms=["ubar", "vbar"], **slice_kwargs)
         U = np.sqrt(s["ubar"] ** 2 + s["vbar"] ** 2)
 
-    Uinf = np.interp(z_hub, s["z"], U)
+    Uinf = np.interp(z_hub, s.grid.z, U)
     return Uinf
 
 
@@ -78,9 +104,9 @@ def get_phihub(self, z_hub=0, return_degrees=False, use_fields=False, **slice_kw
         phi = np.arctan2(ret["vbar"], ret["ubar"])
 
     if return_degrees:
-        return np.rad2deg(np.interp(z_hub, self.zLine, phi))
+        return np.rad2deg(np.interp(z_hub, self.grid.z, phi))
     else:
-        return np.interp(z_hub, self.zLine, phi)
+        return np.interp(z_hub, self.grid.z, phi)
 
 
 def get_timekey(self, budget=False):

@@ -10,9 +10,6 @@ Kirby Heck
 
 import shutil  # we will use this to copy files
 import time
-import glob
-import os
-import sys
 from pathlib import Path
 
 from .. import BudgetIO
@@ -53,7 +50,6 @@ def copy_padeops_data(
         Uses case.unique_tidx()[-1] if None. Default None
     copy_budgets : bool, optional
         Copies budget files if True. Default True. 
-        #TODO add the option to keep only some budget terms
     budget_terms : list of terms
         Parse budget terms 
     copy_restarts : bool, optional
@@ -236,36 +232,8 @@ def export_concurrent(
             case.write_data(export_dir, fmt=filetype, **export_kwargs)
     
 
-def debug(): 
-    case_dir = Path(r'/scratch/08445/tg877441/shear_veer/sensitivity/uniform/delta_00_ctp_00')
-    copy_padeops_data(case_dir=case_dir, runid=1)
-
 if __name__ == '__main__': 
     """
     Export from the command line. 
     """
-    import sys
-
-    debug()
-        
-    # # read input args: 
-    # main_dir = sys.argv[1]
-    
-    # try: 
-    #     ids = [k for k in sys.argv[2:]]
-    # except: 
-    #     print('export.py: Missing directory names to export')
-    
-    # write_dir = os.path.join(main_dir, 'export')
-    
-    # cases = []
-    # for k in ids: 
-    #     case = BudgetIO(os.path.join(main_dir, k), padeops=True, verbose=True, runid=5)
-    #     cases.append(case)
-        
-    # copy_padeops_data(cases, write_dir) #, copy_restarts=True)
-    
-    # print('Done!') 
-    
-
-
+    pass  # TODO: write unit tests        
