@@ -4,16 +4,24 @@ PadeOpsIO is a tool for loading, visualizing, and analyzing data from [PadéOps]
 
 ## Dependencies
 
-Aside from standard python library packages, PadeOpsIO requires: <br>
-* `numpy` <br>
-* `scipy` <br>
-* `matplotlib` <br>
+Aside from standard python library packages, PadeOpsIO requires:
+
+* `numpy`
+
+* `scipy`
+
+* `matplotlib`
+
+* `jinja2`
+
+* `xarray`
+
 
 ## Installation
 
 Clone the repo from GitHub. This can be done with: 
 ```
-pip install git+https://github.com/kirbyh/padeopsIO.git
+pip install git+https://github.com/Howland-Lab/padeopsIO.git
 ```
 
 Alternatively, for developers, clone the git repository locally and install it with editing enabled (requires `pip` 22+): 
@@ -22,7 +30,7 @@ Alternatively, for developers, clone the git repository locally and install it w
 cd $install_dir
 
 # clone the repo
-git clone -b main https://github.com/kirbyh/padeopsIO.git
+git clone -b main https://github.com/Howland-Lab/padeopsIO.git
 
 # then add with pip
 pip install -e padeopsIO
@@ -36,7 +44,7 @@ import padeopsIO as pio
 
 ## Usage
 
-PadeOpsIO is used for visualization and analysis for output data from PadéOps. For more, see the [quick start](https://github.com/kirbyh/padeopsIO/blob/main/examples/padeopsIO_quickstart.ipynb). 
+PadeOpsIO is used for visualization and analysis for output data from PadéOps. For more, see the [quick start](https://github.com/kirbyh/Howland-Lab/blob/main/examples/padeopsIO_quickstart.ipynb). 
 
 Data can be instanteous data: 
 
