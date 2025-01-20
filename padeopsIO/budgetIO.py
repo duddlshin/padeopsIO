@@ -353,8 +353,6 @@ class BudgetIO:
         except KeyError:
             self.n_turb = 0
 
-        self.nTurb = self.n_turb  # included for legacy - REMOVE
-
         # PHYSICS:
         if self.input_nml["physics"]["isinviscid"]:  # boolean
             self.Re = np.inf
@@ -897,14 +895,8 @@ class BudgetIO:
         if not self.associate_budgets:
             raise AttributeError("read_budgets(): No budgets linked. ")
 
-        # # we need to handle computed quantities differently...
-        # if any(t in ["uwake", "vwake", "wwake"] for t in budget_terms):
-        #     self.calc_wake()
-
-        #     self.printv("read_budgets: Successfully loaded wake budgets. ")
-
         # parse budget_terms with the key
-        key_subset = self._parse_budget_terms(budget_terms, include_wakes=False)
+        key_subset = self._parse_budget_terms(budget_terms)
 
         # Decide: overwrite existing budgets or not?
         if overwrite:
@@ -940,7 +932,7 @@ class BudgetIO:
         if self.associate_padeops:
             self._read_budgets_padeops(
                 key_subset, tidx=tidx
-            )  # this will not include wake budgets
+            )
         elif self.associate_npz:
             self._read_budgets_npz(key_subset, mmap=mmap)
         elif self.associate_mat:
@@ -986,7 +978,7 @@ class BudgetIO:
 
         self.printv(f"Loading budgets {list(key_subset.keys())} from {tidx}")
 
-        # these lines are almost verbatim from PadeOpsViz.py
+        # Match requested keys with (budget, term) tuples and load Fortran binaries
         for key in key_subset:
             budget, term = BudgetIO.key[key]
 
@@ -1038,7 +1030,7 @@ class BudgetIO:
             list(key_subset.keys()),
         )
 
-    def _parse_budget_terms(self, budget_terms, include_wakes=False):
+    def _parse_budget_terms(self, budget_terms):
         """
         Takes a list of budget terms, either keyed in index form
         (budget #, term #) or in common form (e.g. ['ubar', 'vbar'])
@@ -1058,9 +1050,6 @@ class BudgetIO:
         Arguments
         ---------
         budget_terms : list of strings or string, see above
-        REMOVE - 
-        include_wakes : bool, optional
-            includes wake budgets if True, default False.
         """
 
         # add string shortcuts here... # TODO move shortcuts to budgetkey.py?
@@ -1071,7 +1060,7 @@ class BudgetIO:
             budget_terms = list(self.budget.keys())
 
         elif budget_terms == "all":
-            budget_terms = self.existing_terms(include_wakes=include_wakes)
+            budget_terms = self.existing_terms()
 
         elif isinstance(budget_terms, str) and budget_terms in self.key:
             budget_terms = [budget_terms]  # cast to a list
@@ -1095,7 +1084,7 @@ class BudgetIO:
             return {}  # empty dictionary
 
         # parse through terms: they are either 1) valid, 2) missing (but valid keys), or 3) invalid (not in BudgetIO.key)
-        existing_keys = self.existing_terms(include_wakes=include_wakes)
+        existing_keys = self.existing_terms()
         # corresponding associated tuples (#, #)
         existing_tup = [self.key[key] for key in existing_keys]
 
@@ -1150,97 +1139,6 @@ class BudgetIO:
             )
 
         return key_subset
-
-    # def _get_inflow(self, offline=False, wInflow=False):
-    #     """
-    #     Calls the appropriate functions in inflow.py to retrieve the inflow profile for the corresponding flow.
-
-    #     Arguments
-    #     ---------
-    #     offline (bool) : if True, uses the target inflow profile prescribed by initialize.F90. Default (False) reads
-    #         the inflow profile from the first x-index of the domain and average over y.
-    #     wInflow (bool) : if True, returns an array of w-inflow velocities. Default (False) only returns u, v.
-
-    #     Returns
-    #     -------
-    #     u (array) : [nz x 1] array of u-velocities as a function of height
-    #     v (array) : [nz x 1] array of v-velocities as a function of height
-    #     w (array) : [nz x 1] array of w-velocities as a function of height. Nominally this is all zero.
-
-    #     """
-
-    #     # load using InflowParser:
-    #     if offline:
-    #         if self.associate_nml:
-    #             u, v = inflow.InflowParser.inflow_offline(
-    #                 **dict(self.input_nml["AD_coriolisinput"]), zLine=self.zLine
-    #             )
-
-    #         # reading from the budgets
-    #         else:
-    #             warnings.warn(
-    #                 "_get_inflow: Requested offline inflow, but namelist not associated. Trying online."
-    #             )
-    #             u, v = inflow.InflowParser.inflow_budgets(self)
-
-    #     else:
-    #         u, v = inflow.InflowParser.inflow_budgets(self)
-
-    #     # return requested information
-    #     if wInflow:
-    #         # If this is not nominally zero, then this will need to be fixed.
-    #         w = np.zeros(self.zLine.shape)
-    #         return np.array([u, v, w])
-
-    #     else:
-    #         return np.array([u, v])
-
-    # def calc_wake(self, offline=False, wInflow=False, overwrite=False):
-    #     """
-    #     Computes the wake deficit by subtracting the target inflow from the flow field.
-    #     # TODO - right now this must compute at minimum uwake and vwake. Fix?
-
-    #     Arguments
-    #     ---------
-    #     see _get_inflow()
-    #     overwrite (bool) : re-computes wakes if they are already read in.
-
-    #     Returns
-    #     -------
-    #     None (updates self.budget[] with 'uwake' and 'vwake' keys)
-
-    #     """
-
-    #     target_terms = ["uwake", "vwake"]
-    #     req_terms = ["ubar", "vbar"]  # required budget terms
-    #     if wInflow:
-    #         target_terms.append("wwake")
-    #         req_terms.append("wbar")  # might also need w
-
-    #     # check to see if the terms exist already
-    #     if all(t in self.budget.keys() for t in target_terms):
-    #         if not overwrite:
-    #             warnings.warn(
-    #                 "Wake terms already computed, returning. To compute anyway, use keyword overwrite=True"
-    #             )
-    #             return
-
-    #     # Need mean velocity fields to be loaded
-    #     if not all(t in self.budget.keys() for t in req_terms):
-    #         self.read_budgets(budget_terms=req_terms)
-
-    #     # retrieve inflow
-    #     if wInflow:
-    #         u, v, w = self._get_inflow(offline=offline, wInflow=wInflow)
-    #         self.budget["wwake"] = self.budget["wbar"] - w[np.newaxis, np.newaxis, :]
-
-    #     else:
-    #         u, v = self._get_inflow(offline=offline, wInflow=wInflow)
-
-    #     self.budget["uwake"] = u[np.newaxis, np.newaxis, :] - self.budget["ubar"]
-    #     self.budget["vwake"] = v[np.newaxis, np.newaxis, :] - self.budget["vbar"]
-
-    #     self.printv("calc_wake(): Computed wake velocities. ")
 
     def slice(
         self,
@@ -1643,12 +1541,9 @@ class BudgetIO:
         if len(budget_list) == 0:
             warnings.warn("existing_budgets(): No associated budget files found. ")
 
-        if 0 in budget_list:
-            budget_list.append(5)  # wake budgets can be recovered from mean budgets
-
         return list(np.unique(budget_list))
 
-    def existing_terms(self, budget=None, include_wakes=False):
+    def existing_terms(self, budget=None):
         """
         Checks file names for a particular budget and returns a list of all the existing terms.
 
@@ -1661,8 +1556,7 @@ class BudgetIO:
                 Budget 1: momentum
                 Budget 2: MKE
                 Budget 3: TKE
-                Budget 5: Wake deficit
-        include_wakes (bool) : Includes wakes in the returned budget terms if True, default False.
+                Budget 4: Reynolds Stresses
 
         Returns
         -------
@@ -1706,24 +1600,6 @@ class BudgetIO:
                     )
                 ]
                 tup_list += [((b, term)) for term in set(terms)]  # these are all tuples
-
-                # # wake budgets:
-                # wake_budgets = (1, 2, 3)
-                # if include_wakes and b == 5:
-                #     terms = [
-                #         int(
-                #             re.findall(
-                #                 "Run{:02d}_budget{:01d}_term(\d+).*".format(runid, 0),
-                #                 str(name),
-                #             )[0]
-                #         )
-                #         for name in filenames
-                #         if re.findall(
-                #             "Run{:02d}_budget{:01d}_term(\d+).*".format(runid, 0), str(name)
-                #         )
-                #     ]  # read from mean budgets
-
-                #     tup_list += [((b, term)) for term in wake_budgets if term in terms]
 
             # convert tuples to keys
             t_list = [BudgetIO.key.inverse[key][0] for key in tup_list]
@@ -2045,6 +1921,25 @@ class BudgetIO:
         """
         return self.read_turb_property(tidx, "vvel", **kwargs)
 
+    def get_logfiles(self, path=None, search_str="*.o[0-9]*", id=-1): 
+        """
+        Searches for all logfiles formatted "*.o[0-9]" (Stampede3 format)
+        and returns the entire list if `id` is None, otherwise returns 
+        the specific `id` requested. 
+
+        Parameters
+        ----------
+        path : path-like, optional
+            Directory to search for logfiles. Default is self.dir_name
+        search_str : str, optional
+            Pattern to attempt to match. Default is "*.o[0-9]*"
+        id : int, optional
+            If multiple logfiles exist, selects this index of the list. 
+            Default is -1
+        """
+        path = path or self.dir_name
+        return tools.get_logfiles(path, search_str=search_str, id=id)
+
     def get_ustar(self, logfile=None, crop_budget=True, average=True):
         """
         Gleans ustar from the logfile.
@@ -2060,7 +1955,7 @@ class BudgetIO:
             Time averages. Defaults to True.
         """
         return tools.get_ustar(
-            self, logfile=logfile, crop_budget=crop_budget, average=average
+            self, search_str=logfile, crop_budget=crop_budget, average=average
         )
 
     def get_uhub(self, z_hub=0, use_fields=False, **slice_kwargs):

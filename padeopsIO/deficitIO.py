@@ -40,20 +40,11 @@ class DeficitIO(pio.BudgetIO):
         """
         Checks file names for which budgets were output.
         """
-        filenames = self.dirname.glob("*")
-
         if self.associate_padeops:
-            runid = self.runid
             # capturing *_budget(\d+)* in filenames
-            budget_list = [
-                int(
-                    re.findall("Run{:02d}.*_deficit_budget(\d+).*".format(runid), str(name))[
-                        0
-                    ]
-                )
-                for name in filenames
-                if re.findall("Run{:02d}.*_deficit_budget(\d+).*".format(runid), str(name))
-            ]
+            budget_list = self.unique_tidx(
+                search_str=f"Run{self.runid:02d}.*_deficit_budget(\d+).*"
+            )
 
         else:
             if self.associate_npz:
@@ -72,9 +63,9 @@ class DeficitIO(pio.BudgetIO):
         if len(budget_list) == 0:
             warnings.warn("existing_budgets(): No associated budget files found. ")
 
-        return list(np.unique(budget_list))
+        return np.unique(budget_list)
 
-    def existing_terms(self, budget=None, include_wakes=False):
+    def existing_terms(self, budget=None):
         """
         Checks file names for a particular budget and returns a list of all the existing terms.
 
@@ -87,8 +78,6 @@ class DeficitIO(pio.BudgetIO):
             Budget 2: MKE
             Budget 3: TKE
             Budget 4: Reynolds stress
-            Budget 5: Wake deficit
-        include_wakes (bool) : Includes wakes in the returned budget terms if True, default False.
 
         Returns
         -------
@@ -106,90 +95,34 @@ class DeficitIO(pio.BudgetIO):
 
         else:
             # convert to list if integer is given
-            if type(budget) != list:
+            if hasattr(budget, "__iter__"):
                 budget_list = [budget]
             else:
                 budget_list = budget
 
-        # find budgets by name matching with PadeOps output conventions
         if self.associate_padeops:
-
-            filenames = os.listdir(self.dirname)
-            runid = self.runid
-
+            # find budgets by name matching with PadeOps output conventions
             tup_list = []
             # loop through budgets
             for b in budget_list:
-                # capturing *_term(\d+)* in filenames
-                terms = [
-                    int(
-                        re.findall(
-                            "Run{:02d}_deficit_budget{:01d}_term(\d+).*".format(
-                                runid, b
-                            ),
-                            name,
-                        )[0]
-                    )
-                    for name in filenames
-                    if re.findall(
-                        "Run{:02d}_deficit_budget{:01d}_term(\d+).*".format(runid, b),
-                        name,
-                    )
-                ]
-                tup_list += [((b, term)) for term in set(terms)]  # these are all tuples
+                search_str=f"Run{self.runid:02d}_deficit_budget{b:01d}_term(\d+).*"
+                terms = self.unique_tidx(search_str=search_str)
+                tup_list += [((b, term)) for term in terms]  # these are all tuples
 
                 # reynolds stress budgets
                 if b == 4:
                     for component in budget4_comp_dict:
-                        terms = [
-                            int(
-                                re.findall(
-                                    "Run{:02d}_deficit_budget{:01d}_{:01d}_term(\d+).*".format(
-                                        runid, b, component
-                                    ),
-                                    name,
-                                )[0]
-                            )
-                            + budget4_comp_dict[component]
-                            for name in filenames
-                            if re.findall(
-                                "Run{:02d}_deficit_budget{:01d}_{:01d}_term(\d+).*".format(
-                                    runid, b, component
-                                ),
-                                name,
-                            )
-                        ]
+                        search_str=f"Run{self.runid:02d}_deficit_budget{b:01d}_{component:01d}_term(\d+).*"
+                        terms = self.unique_tidx(search_str=search_str)
                         tup_list += [
-                            ((b, term)) for term in set(terms)
+                            ((b, term)) for term in terms
                         ]  # these are all tuples
-
-                # wake budgets:
-                wake_budgets = (1, 2, 3)
-                if include_wakes and b == 5:
-                    terms = [
-                        int(
-                            re.findall(
-                                "Run{:02d}_deficit_budget{:01d}_term(\d+).*".format(
-                                    runid, 0
-                                ),
-                                name,
-                            )[0]
-                        )
-                        for name in filenames
-                        if re.findall(
-                            "Run{:02d}_deficit_budget{:01d}_term(\d+).*".format(
-                                runid, 0
-                            ),
-                            name,
-                        )
-                    ]  # read from mean budgets
-
-                    tup_list += [((b, term)) for term in wake_budgets if term in terms]
 
             # convert tuples to keys
             t_list = [self.key.inverse[key][0] for key in tup_list]
-        # find budgets matching .npz convention in write_npz()
+
         else:
+            # find budgets matching .npz convention in write_npz()
             if self.associate_npz:
                 filename = self.dirname / self.fname_budgets.format("npz")
                 with np.load(filename) as npz:
@@ -228,7 +161,7 @@ class DeficitIO(pio.BudgetIO):
         budget4_components = [11, 22, 33, 13, 23]
 
         if tidx is None:
-            if (self.budget or self.budget_tidx is not None):  
+            if self.budget or self.budget_tidx is not None:
                 # if there are budgets loaded, continue loading from that TIDX
                 tidx = self.budget_tidx
             else:
@@ -247,7 +180,7 @@ class DeficitIO(pio.BudgetIO):
             )
             tidx = closest_tidx
 
-        # Additional deficitIO steps to parse budget terms here: 
+        # Additional deficitIO steps to parse budget terms here:
         for key in key_subset:
             budget, term = DeficitIO.key[key]
             if budget == 4:
@@ -265,7 +198,9 @@ class DeficitIO(pio.BudgetIO):
             try:
                 u_fname = next(self.dirname.glob(searchstr))
             except StopIteration as e:
-                raise FileNotFoundError(f"No matching files found at {self.dirname / searchstr}")
+                raise FileNotFoundError(
+                    f"No matching files found at {self.dirname / searchstr}"
+                )
 
             self.budget_n = int(
                 re.findall(".*_t\d+_n(\d+)", str(u_fname))[0]
@@ -279,7 +214,8 @@ class DeficitIO(pio.BudgetIO):
 
         if self.verbose and len(key_subset) > 0:
             print(
-                "PadeOpsViz loaded the deficit budget fields at time:" + "{:.06f}".format(tidx)
+                "PadeOpsViz loaded the deficit budget fields at time:"
+                + "{:.06f}".format(tidx)
             )
 
     def unique_budget_tidx(self, return_last=False):
