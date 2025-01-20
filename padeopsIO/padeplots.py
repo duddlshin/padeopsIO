@@ -1,6 +1,8 @@
 """
 Basic plotting functionality. 
 
+Incomplete/deprecated 2025. 
+
 Kirby Heck
 c. 2022
 """
@@ -10,78 +12,6 @@ import numpy as np
 
 from . import budgetkey
 
-
-class PlotIO(): 
-    """
-    Interface class for plotting and saving figures using a BudgetIO object. 
-    """
-
-    keylab = budgetkey.key_labels()
-
-    x_lab = '$x$'
-    y_lab = '$y$'
-    z_lab = '$z$'
-    fs = 12
-    plt.rcParams.update({'font.size': fs})
-
-    cbar = "coolwarm"
-    dpi = 100
-    # add other constants here? Note: these are mutable by the user
-
-    def set_fontsize(fontsize): 
-        """
-        Sets the font size
-        """
-        PlotIO.fs = fontsize
-        plt.rcParams.update({'font.size': fontsize})
-
-
-    def plot_xy(io, budget_terms, z, xlim=None, ylim=None, 
-                ax=None, xlabel=None, ylabel=None): 
-        """
-        Plots a slice in the xy-plane. 
-        
-        If `budget_terms` is a list, then plot_xy will recursively call itself for each term individually
-        and produce figures of each separately. 
-        
-        Arguments
-        ---------
-        io (BudgetIO obj) : BudgetIO object linked to padeops data
-        budget_terms (list or str) : terms to plot
-        z (float) : z-location to pull slices from
-        xlim, ylim : slice bounds, see BudgetIO.slice()
-        
-        Returns 
-        -------
-        
-        """
-        slices = io.slice(budget_terms, xlim=xlim, ylim=ylim, zlim=z)
-
-        for term in budget_terms: 
-            fig, ax = plt.subplots()
-            im = ax.imshow(slices[term].T, extent=slices['extent'], origin='lower')
-
-            common_cbar(fig, im, ax, label=PlotIO.keylab[term])
-
-            ax.set_xlabel(PlotIO.x_lab)
-            ax.set_ylabel(PlotIO.y_lab)
-
-            plt.show()
-
-    
-    def xz_slice(): 
-        """
-        Plots a slice in the xz-plane. 
-        """
-        pass
-
-    def yz_slice(): 
-        """
-        Plots a slice in the yz-plane. 
-        """
-        pass
-
- 
 # ----------- additional helper functions ------------
 
 def common_cbar(fig, image, ax=None, location='right', label=None, height=1., width=0.02): 
