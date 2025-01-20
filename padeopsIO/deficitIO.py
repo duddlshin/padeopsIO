@@ -105,14 +105,14 @@ class DeficitIO(pio.BudgetIO):
             tup_list = []
             # loop through budgets
             for b in budget_list:
-                search_str=f"Run{self.runid:02d}_deficit_budget{b:01d}_term(\d+).*"
+                search_str = f"Run{self.runid:02d}_deficit_budget{b:01d}_term(\d+).*"
                 terms = self.unique_tidx(search_str=search_str)
                 tup_list += [((b, term)) for term in terms]  # these are all tuples
 
                 # reynolds stress budgets
                 if b == 4:
                     for component in budget4_comp_dict:
-                        search_str=f"Run{self.runid:02d}_deficit_budget{b:01d}_{component:01d}_term(\d+).*"
+                        search_str = f"Run{self.runid:02d}_deficit_budget{b:01d}_{component:01d}_term(\d+).*"
                         terms = self.unique_tidx(search_str=search_str)
                         tup_list += [
                             ((b, term)) for term in terms

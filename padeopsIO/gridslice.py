@@ -29,9 +29,9 @@ class GridDataset(xr.Dataset):
     __slots__ = ()
 
     def __init__(self, *args, x=None, y=None, z=None, coords=None, **kwargs):
-        if len(args) > 0 and hasattr(args[0], "coords"): 
+        if len(args) > 0 and hasattr(args[0], "coords"):
             coords = args[0].coords
-        else: 
+        else:
             coords = coords or dict(x=x, y=y, z=z)
         kwargs.update(coords=coords)
         super().__init__(*args, **kwargs)
@@ -226,7 +226,9 @@ class Slicer:
         )
         kwargs = dict(x=xids, y=yids, z=zids)
         valid_indexers = {
-            dim: idx for dim, idx in kwargs.items() if idx is not None and dim in self._obj.dims
+            dim: idx
+            for dim, idx in kwargs.items()
+            if idx is not None and dim in self._obj.dims
         }
 
         if isinstance(self._obj, xr.DataArray):
@@ -245,13 +247,13 @@ class XRImshow:
         self._obj = xarray_obj
 
     def __call__(self, ax=None, cbar=True, **kwargs):
-        if isinstance(self._obj, xr.Dataset): 
-            if len(self._obj.keys()) > 1: 
+        if isinstance(self._obj, xr.Dataset):
+            if len(self._obj.keys()) > 1:
                 raise ValueError("Cannot plot type `Dataset` with more than 1 key")
-            else: 
+            else:
                 self._obj[next(iter(self._obj))].imshow(ax=ax, cbar=cbar, **kwargs)
-                
-        else: 
+
+        else:
             if self._obj.ndim != 2:
                 raise AttributeError("imshow() requires 2D data")
 
@@ -265,9 +267,9 @@ class XRImshow:
             ax.set_xlabel(labels[axes[0]])
             ax.set_ylabel(labels[axes[1]])
             if cbar:
-                if self._obj.name in labels.keys(): 
+                if self._obj.name in labels.keys():
                     label = labels[self._obj.name]
-                else: 
+                else:
                     label = self._obj.name
                 plt.colorbar(im, ax=ax, label=label)
             return im

@@ -22,12 +22,12 @@ import re
 import warnings
 
 BASE = Path(__file__).parent.parent
-TEMPLATE_NEUTRAL = BASE / 'templates' / 'input_spinup.j2'
-TEMPLATE_UPSAMPLE = BASE / 'templates' / 'input_upsample.j2'
-TEMPLATE_ROTATE = BASE / 'templates' / 'input_rotate.j2'
-TEMPLATE_CONCURRENT = BASE / 'templates' / 'input_main.j2'
-TEMPLATE_PRIMARY = BASE / 'templates' / 'input_primary.j2'
-TEMPLATE_PRECURSOR = BASE / 'templates' / 'input_precursor.j2'
+TEMPLATE_NEUTRAL = BASE / "templates" / "input_spinup.j2"
+TEMPLATE_UPSAMPLE = BASE / "templates" / "input_upsample.j2"
+TEMPLATE_ROTATE = BASE / "templates" / "input_rotate.j2"
+TEMPLATE_CONCURRENT = BASE / "templates" / "input_main.j2"
+TEMPLATE_PRIMARY = BASE / "templates" / "input_primary.j2"
+TEMPLATE_PRECURSOR = BASE / "templates" / "input_precursor.j2"
 TEMPLATE_LAMINAR = BASE / "templates" / "input_laminar.j2"
 TEMPLATE_HIT = BASE / "templates" / "input_hit.j2"
 TEMPLATE_INTERACT = BASE / "templates" / "input_interact.j2"
@@ -65,38 +65,42 @@ def check_keys(inputs, keys):
     return
 
 
-def find_last_restart(inputs, return_frameangle=True): 
+def find_last_restart(inputs, return_frameangle=True):
     """
-    Finds the final restart file and gleans the TID 
+    Finds the final restart file and gleans the TID
     and frame angle, if requested
     """
-    basedir = Path(inputs['restart_dir'])
-    RID = inputs['restart_rid']
-    restart_files = basedir.glob(f'RESTART_Run{RID:02d}_info*')
+    basedir = Path(inputs["restart_dir"])
+    RID = inputs["restart_rid"]
+    restart_files = basedir.glob(f"RESTART_Run{RID:02d}_info*")
 
     # find the last restart file; largest TID
     filename = None
     tid = -1
-    for file in restart_files: 
-        new_tid = int(re.findall(r'info.(\d+)$', str(file))[0])  # glean the TID from the string
-        if new_tid > tid: 
+    for file in restart_files:
+        new_tid = int(
+            re.findall(r"info.(\d+)$", str(file))[0]
+        )  # glean the TID from the string
+        if new_tid > tid:
             tid = new_tid
             filename = file
 
     if tid == 0:
         # this did not find any files
-        warnings.warn('find_last_restart(): no restart files found, defaulting to TID 0')
-    
-    if not return_frameangle: 
+        warnings.warn(
+            "find_last_restart(): no restart files found, defaulting to TID 0"
+        )
+
+    if not return_frameangle:
         return tid
-    else: 
+    else:
         print(filename)
         data = np.genfromtxt(filename, dtype=None)
-        if len(data) < 2: 
+        if len(data) < 2:
             frameangle = 0
-        else: 
+        else:
             frameangle = -data[1]
-        
+
         return tid, frameangle
 
 
@@ -429,24 +433,23 @@ def write_hit(
         print("\tDone writing HIT input files")
 
 
-
 def write_neutral(
-        inputs, 
-        dst=None, 
-        quiet=False, 
-        inputfile_name='input_neutral.dat',
-        n_hrs=24,  # allocated time, in hours
-    ): 
+    inputs,
+    dst=None,
+    quiet=False,
+    inputfile_name="input_neutral.dat",
+    n_hrs=24,  # allocated time, in hours
+):
     """
     Write input file for spinup simulation
-    
+
     Parameters
     ----------
     inputs : dict
-        Dictionary of inputs, including: 
+        Dictionary of inputs, including:
             nx, ny, nz
-            dirname, 
-            tstop, 
+            dirname,
+            tstop,
             Lx, Ly (optional)
     dst : Path, optional
         Destination of written files. If none, defaults to inputs['dirname']
@@ -457,36 +460,53 @@ def write_neutral(
     """
 
     # check existing keys
-    keys = ['nx', 'ny', 'nz', 'dirname', 'Ro', 'Fr', 
-            'lat', 'z0', 'Lx', 'Ly', 'Lz', 'do_budgets', 'time_budget_start']
+    keys = [
+        "nx",
+        "ny",
+        "nz",
+        "dirname",
+        "Ro",
+        "Fr",
+        "lat",
+        "z0",
+        "Lx",
+        "Ly",
+        "Lz",
+        "do_budgets",
+        "time_budget_start",
+    ]
     check_keys(inputs, keys)
-    
+
     # make output directory
     OUTPUT = safe_mkdir(inputs, quiet=quiet, dst=dst)
 
-    # load spinup template and write template: 
-    with open(TEMPLATE_NEUTRAL, 'r') as f: 
+    # load spinup template and write template:
+    with open(TEMPLATE_NEUTRAL, "r") as f:
         template = jinja2.Template(f.read(), undefined=jinja2.StrictUndefined)
 
-    # render output 
+    # render output
     out = template.render(inputs)
-    with open(OUTPUT / inputfile_name, 'w') as f: 
+    with open(OUTPUT / inputfile_name, "w") as f:
         f.write(out)
 
     # make submit.sh file
-    with open(OUTPUT / 'submit.sh', 'w') as f: 
-        f.write(sbatch_write_file(inputs, inputfile_name, problem_name='neutral_pbl', n_hrs=n_hrs))
+    with open(OUTPUT / "submit.sh", "w") as f:
+        f.write(
+            sbatch_write_file(
+                inputs, inputfile_name, problem_name="neutral_pbl", n_hrs=n_hrs
+            )
+        )
 
-    if not quiet: 
-        print('\tDone writing spinups files')
+    if not quiet:
+        print("\tDone writing spinups files")
 
 
 def write_upsample(
-        inputs, 
-        dst=None, 
-        quiet=False, 
-        inputfile_name='input_upsample.dat', 
-    ): 
+    inputs,
+    dst=None,
+    quiet=False,
+    inputfile_name="input_upsample.dat",
+):
     """
     Writes upsampled fields inputs
 
@@ -494,125 +514,152 @@ def write_upsample(
     """
 
     # check existing keys
-    keys = ['nx', 'ny', 'nz', 'dirname', 'restart_rid']
+    keys = ["nx", "ny", "nz", "dirname", "restart_rid"]
     check_keys(inputs, keys)
-    
+
     # update inputs
     update_upsample_inputs(inputs)
 
     # make output directory
     OUTPUT = safe_mkdir(inputs, quiet=quiet, dst=dst)
 
-    # load spinup template and write template: 
-    with open(TEMPLATE_UPSAMPLE, 'r') as f: 
+    # load spinup template and write template:
+    with open(TEMPLATE_UPSAMPLE, "r") as f:
         template = jinja2.Template(f.read(), undefined=jinja2.StrictUndefined)
 
-    # render output 
+    # render output
     out = template.render(inputs)
-    with open(OUTPUT / inputfile_name, 'w') as f: 
+    with open(OUTPUT / inputfile_name, "w") as f:
         f.write(out)
 
-    if not quiet: 
-        print('\tDone writing upsampling files')
+    if not quiet:
+        print("\tDone writing upsampling files")
 
 
-def update_upsample_inputs(inputs): 
+def update_upsample_inputs(inputs):
     """Glean the restart TID from the restart RID"""
     TID = find_last_restart(inputs, return_frameangle=False)
-    inputs['restart_tid'] = TID
+    inputs["restart_tid"] = TID
     return  # updates dictionary, returns nothing
 
 
 def write_rotate(
-        inputs, 
-        dst=None, 
-        quiet=False, 
-        inputfile_name='input_rotate.dat', 
-        n_hrs=6, 
-    ): 
+    inputs,
+    dst=None,
+    quiet=False,
+    inputfile_name="input_rotate.dat",
+    n_hrs=6,
+):
     """
-    Writes inputs for the rotation phase 
+    Writes inputs for the rotation phase
     """
     # check existing keys
-    keys = ['nx', 'ny', 'nz', 'dirname', 'restart_dir', 'Ro', 'Fr', 
-            'lat', 'z0', 'z_ref', 'Lx', 'Ly', 'Lz']
+    keys = [
+        "nx",
+        "ny",
+        "nz",
+        "dirname",
+        "restart_dir",
+        "Ro",
+        "Fr",
+        "lat",
+        "z0",
+        "z_ref",
+        "Lx",
+        "Ly",
+        "Lz",
+    ]
     check_keys(inputs, keys)
-    
+
     # adds frame angle line to RESTART file
     prep_rotation(inputs, quiet=quiet)
 
     # make output directory
     OUTPUT = safe_mkdir(inputs, quiet=quiet, dst=dst)
 
-    # load spinup template and write template: 
-    with open(TEMPLATE_ROTATE, 'r') as f: 
+    # load spinup template and write template:
+    with open(TEMPLATE_ROTATE, "r") as f:
         template = jinja2.Template(f.read(), undefined=jinja2.StrictUndefined)
 
-    # render output 
+    # render output
     out = template.render(inputs)
-    with open(OUTPUT / inputfile_name, 'w') as f: 
+    with open(OUTPUT / inputfile_name, "w") as f:
         f.write(out)
 
     # make submit.sh file
-    with open(OUTPUT / 'submit_rotation.sh', 'w') as f: 
-        f.write(sbatch_write_file(inputs, inputfile_name, problem_name='neutral_pbl', n_hrs=n_hrs))
+    with open(OUTPUT / "submit_rotation.sh", "w") as f:
+        f.write(
+            sbatch_write_file(
+                inputs, inputfile_name, problem_name="neutral_pbl", n_hrs=n_hrs
+            )
+        )
 
-    if not quiet: 
-        print('\tDone writing rotation files')
+    if not quiet:
+        print("\tDone writing rotation files")
 
 
-def prep_rotation(inputs, rid=2, tid=0, frameangle=0., quiet=False): 
+def prep_rotation(inputs, rid=2, tid=0, frameangle=0.0, quiet=False):
     """Appends frame angle line to rotation restart files"""
-    fname = Path(inputs['restart_dir']) / f'RESTART_Run{rid:02d}_info.{tid:06d}'
+    fname = Path(inputs["restart_dir"]) / f"RESTART_Run{rid:02d}_info.{tid:06d}"
 
     try:
         data = np.genfromtxt(fname, dtype=None)
-        if len(np.atleast_1d(data)) > 1: 
+        if len(np.atleast_1d(data)) > 1:
             return  # frame angle line already exists
-    except FileNotFoundError: 
+    except FileNotFoundError:
         raise
-    
-    with open(fname, 'a') as src: 
+
+    with open(fname, "a") as src:
         src.write(f"{frameangle:11.1f}")
-    
-    if not quiet: 
-        print('Added frame angle to retart files for rotation phase')
+
+    if not quiet:
+        print("Added frame angle to retart files for rotation phase")
 
 
 def write_concurrent(
-        inputs, 
-        dst=None, 
-        quiet=False, 
-        n_hrs=24, 
-    ): 
+    inputs,
+    dst=None,
+    quiet=False,
+    n_hrs=24,
+):
     """
     Write concurrent files, main function. Calls helper function
     _write_concurrent() after gleaning the restart TID and frame angle
-    from restart files. 
+    from restart files.
     """
-    
+
     # make output directory
     OUTPUT = safe_mkdir(inputs, quiet=quiet, dst=dst)
     # finish populating restart_tid, frame_angle fields
     tid, frameangle = find_last_restart(inputs, return_frameangle=True)
     inputs.update(frameangle=frameangle, restart_tid=tid)
-  
-    for _template, name in zip([TEMPLATE_PRIMARY, TEMPLATE_PRECURSOR, TEMPLATE_CONCURRENT], ['primary', 'precursor', 'main']): 
-        # load spinup template and write template: 
-        with open(_template, 'r') as f: 
+
+    for _template, name in zip(
+        [TEMPLATE_PRIMARY, TEMPLATE_PRECURSOR, TEMPLATE_CONCURRENT],
+        ["primary", "precursor", "main"],
+    ):
+        # load spinup template and write template:
+        with open(_template, "r") as f:
             template = jinja2.Template(f.read(), undefined=jinja2.StrictUndefined)
-    
-        # render output 
+
+        # render output
         out = template.render(inputs)
-        with open(OUTPUT / f'input_{name}.dat', 'w') as f: 
+        with open(OUTPUT / f"input_{name}.dat", "w") as f:
             f.write(out)
 
-        if not quiet: 
-            print(f'\tDone writing {name} files')
+        if not quiet:
+            print(f"\tDone writing {name} files")
 
     # make submit.sh file
-    with open(OUTPUT / 'submit_concurrent.sh', 'w') as f: 
-        f.write(sbatch_write_file(inputs, 'input_main.dat', problem_name='neutral_pbl_concurrent', n_hrs=n_hrs))
+    with open(OUTPUT / "submit_concurrent.sh", "w") as f:
+        f.write(
+            sbatch_write_file(
+                inputs,
+                "input_main.dat",
+                problem_name="neutral_pbl_concurrent",
+                n_hrs=n_hrs,
+            )
+        )
 
 
 def write_turbine(inputs, quiet=False, dst=None, turbnum=1):

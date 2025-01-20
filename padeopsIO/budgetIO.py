@@ -196,7 +196,7 @@ class BudgetIO:
             self.printv("_init_padeops(): Initializing wind turbine array object")
 
             turb_dir = Path(self.input_nml["windturbines"]["turbinfodir"])
-            if not turb_dir.exists(): 
+            if not turb_dir.exists():
                 # hotfix: maybe this folder was copied elsewhere
                 turb_dir = self.dirname / "turb"
 
@@ -260,8 +260,8 @@ class BudgetIO:
 
         if self.associate_budgets:
             self.last_n = self.last_budget_n()  # last tidx with an associated budget
-            self.budget_tidx = (
-                self.unique_budget_tidx(return_last=True)
+            self.budget_tidx = self.unique_budget_tidx(
+                return_last=True
             )  # but may be changed by the user
             self.budget_n = self.last_n
 
@@ -443,15 +443,15 @@ class BudgetIO:
                         "Attempted to normalize origin to `turbine`, but no turbines associated"
                     )
                 return
-        
-        if origin is None: 
+
+        if origin is None:
             self.normalized_xyz = False
             origin = (0, 0, 0)
-        else: 
+        else:
             self.normalized_xyz = True
-        
-        # move the origin now: 
-        for ds in [self.field, self.budget]: 
+
+        # move the origin now:
+        for ds in [self.field, self.budget]:
             ds.coords["x"] = ds["x"] - (origin[0] - self.origin[0])
             ds.coords["y"] = ds["y"] - (origin[1] - self.origin[1])
             ds.coords["z"] = ds["z"] - (origin[2] - self.origin[2])
@@ -930,9 +930,7 @@ class BudgetIO:
                 self.clear_budgets()
 
         if self.associate_padeops:
-            self._read_budgets_padeops(
-                key_subset, tidx=tidx
-            )
+            self._read_budgets_padeops(key_subset, tidx=tidx)
         elif self.associate_npz:
             self._read_budgets_npz(key_subset, mmap=mmap)
         elif self.associate_mat:
@@ -1053,9 +1051,9 @@ class BudgetIO:
         """
 
         # add string shortcuts here... # TODO move shortcuts to budgetkey.py?
-        if budget_terms is None: 
+        if budget_terms is None:
             return dict()
-        
+
         elif budget_terms == "current":
             budget_terms = list(self.budget.keys())
 
@@ -1152,7 +1150,7 @@ class BudgetIO:
         ylim=None,
         zlim=None,
         overwrite=False,
-        **sel_kwargs, 
+        **sel_kwargs,
     ):
         """
         Returns a slice of the requested budget term(s) as a dictionary.
@@ -1204,9 +1202,10 @@ class BudgetIO:
             # read budgets
             self.read_budgets(budget_terms=budget_terms, tidx=tidx, overwrite=overwrite)
             preslice = self.budget
-            budget_terms = [budget_terms] if isinstance(budget_terms, str) else budget_terms
+            budget_terms = (
+                [budget_terms] if isinstance(budget_terms, str) else budget_terms
+            )
             keys = [term for term in budget_terms if term in self.budget.keys()]
-
 
         elif field is not None:
             raise NotImplementedError("Deprecated v1.0.0")
@@ -1217,7 +1216,7 @@ class BudgetIO:
             )
             return None
 
-        if len(keys) == 0: 
+        if len(keys) == 0:
             return None
 
         return preslice.slice(xlim=xlim, ylim=ylim, zlim=zlim, keys=keys, **sel_kwargs)
@@ -1351,18 +1350,23 @@ class BudgetIO:
         # by default, take the whole x,y domain
         _slice_kwargs = dict(xlim=None, ylim=None, zlim=zlim)
         _slice_kwargs.update(slice_kwargs)
-        
-        to_merge = list(filter(None, [
-            self.slice(budget_terms=budget_terms, **_slice_kwargs),
-            self.slice(field_terms=field_terms, **_slice_kwargs)
-        ]))
-        
+
+        to_merge = list(
+            filter(
+                None,
+                [
+                    self.slice(budget_terms=budget_terms, **_slice_kwargs),
+                    self.slice(field_terms=field_terms, **_slice_kwargs),
+                ],
+            )
+        )
+
         axes = [axis for axis in ["x", "y"] if axis in self.field.dims]
-        if len(to_merge) == 0: 
+        if len(to_merge) == 0:
             return None
-        elif len(to_merge) == 1: 
+        elif len(to_merge) == 1:
             return to_merge[0].mean(axes)
-        else: 
+        else:
             return xr.merge(to_merge).mean(axes)
 
     def unique_tidx(self, return_last=False, search_str="Run{:02d}.*_t(\d+).*.out"):
@@ -1921,11 +1925,11 @@ class BudgetIO:
         """
         return self.read_turb_property(tidx, "vvel", **kwargs)
 
-    def get_logfiles(self, path=None, search_str="*.o[0-9]*", id=-1): 
+    def get_logfiles(self, path=None, search_str="*.o[0-9]*", id=-1):
         """
         Searches for all logfiles formatted "*.o[0-9]" (Stampede3 format)
-        and returns the entire list if `id` is None, otherwise returns 
-        the specific `id` requested. 
+        and returns the entire list if `id` is None, otherwise returns
+        the specific `id` requested.
 
         Parameters
         ----------
@@ -1934,7 +1938,7 @@ class BudgetIO:
         search_str : str, optional
             Pattern to attempt to match. Default is "*.o[0-9]*"
         id : int, optional
-            If multiple logfiles exist, selects this index of the list. 
+            If multiple logfiles exist, selects this index of the list.
             Default is -1
         """
         path = path or self.dir_name
