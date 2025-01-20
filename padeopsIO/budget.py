@@ -9,13 +9,21 @@ import numpy as np
 from .utils.io_utils import key_search_r
 from .budgetIO import BudgetIO
 from .budget_addons import *
-from .gridslice import Grid3, Slice
+from .gridslice import Grid3, Slice, GridDataset
 
 
-class Budget(Slice):
+class Budget(GridDataset):
     """
     Computes "offline" budgets and links to a BudgetIO object.
     """
+
+    __slots__ = (
+        "src", 
+        "full_arrays", 
+        "momentum_x", 
+        "momentum_y", 
+        "momentum_z", 
+    )
 
     def __init__(self, src):
         """
@@ -30,59 +38,42 @@ class Budget(Slice):
         """
 
         if isinstance(src, BudgetIO):
-            super().__init__(src.budget, grid=src.grid)
+            super().__init__(src.budget)
             self.src = src
-            self.src_type = BudgetIO
-            self.x = src.x
-            self.y = src.y
-            self.z = src.z
-            self.Ro = src.Ro
-            self.lat = src.lat
-            self.galpha = src.galpha
-            self.Fr = src.Fr
-            self.is_stratified = key_search_r(src.input_nml, "isstratified")
-            if self.is_stratified is None:
-                self.is_stratified = False
-            self.theta0 = key_search_r(src.input_nml, "tref")
-            self.full_arrays=Slice(src.budget, grid=src.grid)  # store a copy of pointers here
+            self.attrs["Ro"] = src.Ro
+            self.attrs["lat"] = src.lat
+            self.attrs["galpha"] = src.galpha
+            self.attrs["Fr"] = src.Fr
+            self.attrs["is_stratified"] = key_search_r(src.input_nml, "isstratified") or False
+            self.attrs["theta0"] = key_search_r(src.input_nml, "tref")
+            self.full_arrays = src.budget  # keep "Full" BudgetIO domain size
 
-        elif isinstance(src, dict):
-            super().__init__(**src)
-            self.src = src
-            self.src_type = dict
-            self.x = src["x"]  # these may throw a KeyError
-            self.y = src["y"]
-            self.z = src["z"]
-            self.Ro = None
-            self.lat = None
-            self.galpha = 0
-            self.Fr = None
-            self.is_stratified = None
-            self.theta0 = None
-            self.full_arrays=Slice(**src)  # in this case, full arrays do not change
+        elif isinstance(src, Budget):
+            super().__init__(src)
 
         else:
-            raise TypeError(f"`src` must be type BudgetIO or dict, not {type(src)}")
-
-        # initialize grid
-        self.grid = Grid3(x=self.x, y=self.y, z=self.z)
+            raise TypeError(f"`src` must be type BudgetIO, not {type(src)}")
 
     def set_xlim(self, xlim=None, ylim=None, zlim=None): 
-        """Updates the grid and slices into main fields"""
+        """
+        Updates the grid and slices into main fields
+        
+        If no keyword arguments are given, resets the budget object
+        grid to the source (LES) dimensions.
+        """
         newslice = self.full_arrays.slice(xlim=xlim, ylim=ylim, zlim=zlim)
+        attrs = self.attrs
         super().__init__(newslice)  # create a new parent object
+        self.attrs = attrs  # save attributes
 
     def _read_budgets(self, budget_terms):
         """
         Reads budgets using BudgetIO, if linked.
         """
-        if self.src_type == BudgetIO:
+        if isinstance(self.src, BudgetIO):
             self.src.read_budgets(budget_terms=budget_terms)
-
             self.full_arrays = self.src.budget
-            self.set_xlim(xlim=self.grid.x, ylim=self.grid.y, zlim=self.grid.z)
-            # for key in self.src.budget.keys():
-            #     self.__setitem__(key, self.src.budget[key])
+
         else:
             raise AttributeError(
                 "_read_budgets(): Reading budgets requires a linked BudgetIO object."
