@@ -1,0 +1,24 @@
+#!/bin/bash
+#SBATCH -J ad_coriolis_kh            # Job name
+#SBATCH -o ad_coriolis_kh.o%j        # Name of stdout output file
+#SBATCH -e ad_coriolis_kh.e%j        # Name of stderr error file
+#SBATCH -p skx                       # Queue (partition) name
+#SBATCH -N {{ n_nodes }}             # Total # of nodes
+#SBATCH --ntasks-per-node 48         # Total # of cores
+#SBATCH -t {{ n_hrs }}:00:00         # Run time (hh:mm:ss)
+#SBATCH --mail-user=                 # Email ID  
+#SBATCH --mail-type=all              # Send email at begin and end of job
+#SBATCH -A TG-ATM170028              # Allocation details
+
+export inputFile="{{ inputfile_name }}"
+export problemDir="{{ dirname }}"
+export FI_PROVIDER=psm2
+export I_MPI_EXTRA_FILESYSTEM="on"
+
+# Change directory to go to your bin
+cd $WORK/PadeOps/build_opti/problems/{{ problem_dir }}
+date
+pwd
+
+# Launch MPI code...
+ibrun ./{{ problem_name }} $problemDir/$inputFile

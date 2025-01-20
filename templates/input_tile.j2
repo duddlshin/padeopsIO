@@ -1,0 +1,16 @@
+&INPUT
+nx              = {{ "%d"|format(nx|int) }}       ! Number of x points in original simulation
+ny              = {{ "%d"|format(ny|int) }}       ! Number of y points in original simulation
+nz              = {{ "%d"|format(nz|int) }}       ! Number of z points in original simulation
+inputdir        = "{{ dirname }}"     ! Directory for input files
+outputdir       = "{{ dirname }}"     ! Directory for output files
+ntile_x         = {{ "%d"|format(tile_x|int) }}         ! Integer number of tiles in x
+ntile_y         = {{ "%d"|format(tile_y|int) }}         ! Integer number of tiles in y
+ntile_z         = 1         ! Integer number of tiles in z - CHECK: must be periodic in z to tile in z
+periodicInZ     = .false.   ! Periodic in z?
+inputfile_RID   = 02        ! Restart file ID of input
+inputfile_TID   = {{ tid }}     ! Restart time ID of input
+outputfile_RID  = 03        ! New restart file ID of output
+outputfile_TID  = 0         ! New restart time ID of output
+isStratified    = .true.    ! Copy potential temperature fields if true
+/

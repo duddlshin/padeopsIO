@@ -1,0 +1,12 @@
+&ACTUATOR_DISK
+xLoc         =   {{ "%0.4f"|format(xturb|float) }}d0  ! turbine x-location (check appropriate non-dim)
+yLoc         =   {{ "%0.4f"|format(yturb|float) }}d0  ! turbine y-location (check appropriate non-dim)
+zLoc         =   {{ "%0.4f"|format(zturb|float) }}d0  ! turbine z-location (check appropriate non-dim)
+diam         =   1.0000d0                             ! turbine diameter   (check appropriate non-dim) 
+cT           =   {{ "%0.4f"|format(ctp|float) }}d0    ! Thrust coefficient (NOTE: for ADM type 1, 2, 5, this is Ctprime, NOT C_T)
+tilt         =   0.0000d0                             ! Tilt angle (degrees)
+yaw          =   0.0000d0                             ! Yaw angle (degrees)
+filterWidth  =   0.30619d0                            ! Filter width (only for ADM type 5)
+useCorrection = .FALSE.                               ! Use correction factor? (Shapiro et al., 2019)
+useDynamicYaw = .FALSE.                               ! Dynamically yaw the turbine? 
+/
