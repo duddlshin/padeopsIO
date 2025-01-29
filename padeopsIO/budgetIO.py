@@ -18,6 +18,7 @@ import warnings
 from scipy.io import savemat, loadmat
 from scipy.interpolate import RegularGridInterpolator as RGI
 from pathlib import Path
+from typing import Union, Literal, Any
 
 from . import budgetkey, turbineArray
 from .utils.io_utils import structure_to_dict, key_search_r
@@ -43,19 +44,26 @@ class BudgetIO:
         if self.verbose:
             self.print(*args)
 
+    def warn(self, *args):
+        """Prints warning messages if self.show_warnings is True"""
+        if self.show_warnings and not self.quiet:
+            warnings.warn(*args)
+
     def __init__(
         self,
-        dirname,
-        verbose=False,
-        quiet=False,
-        filename=None,
-        runid=None,
-        normalize_origin=False,
-        padeops=False,
-        npz=False,
-        mat=False,
-        npy=False,
-        read_budgets=None,
+        dirname: Union[Path, str],
+        verbose: bool = False,
+        quiet: bool = False,
+        show_warnings: bool = True,
+        filename: Union[str, None] = None,
+        runid: Union[int, None] = None,
+        normalize_origin: Union[tuple[int], str, bool] = False,
+        src: Union[Literal["padeops", "npz", "npy", "mat"], None] = None,
+        padeops: bool = False,
+        npz: bool = False,
+        npy: bool = False,
+        mat: bool = False,
+        strict_runid: bool = False,
     ):
         """
         Creates different instance variables depending on the keyword arguments given.
@@ -65,22 +73,31 @@ class BudgetIO:
         files are stored. This object may also read information from a local subset of
         saved data.
 
-        The BudgetIO class will try to initialize from source files if kwarg
-        `padeops=True` is given. Alternatively, initialize from .mat files using kwarg
-        `mat=True`.
+        The BudgetIO class will try to initialize from the type of source files
+        requested in kwargs `src`. Alternatively, the user may pass in a boolean
+        for kwarg [`padeops`, `mat`, `npz`, `npy`].
 
-        If those keyword arguments not are present, then the directory name will (attempt to) read from
-        budgets of saved .npz files.
+        # read from source files in directory "data"
+        >>> sim = pio.BudgetIO(r"/path/to/source/data", padeops=True, runid=1)
 
-        Regardless of the method of reading budget files, __init__ will initialize the following fields:
+        The `filename` flag is assumed to be the directory name (self.dirname.name)
+        unless it is specified. When reading from .npz files, it is possible that the
+        saved filename differs from the directory which the data are stored.
+
+        >>> sim = pio.BudgetIO(r"/path/to/mydata", npz=True)  # looks for file mydata_budgets.npz
+        >>> sim = pio.BudgetIO(r"/path/to/moved/data", npz=True, filename="mydata")  # still looks for file mydata_budgets.npz
+
+        Regardless of the method of reading budget files, __init__ will initialize
+        the following fields:
+
         RUN INFORMATION:
-            filename, dirname,
+            filename, dirname, runid
         DOMAIN VARIABLES:
             Lx, Ly, Lz, nx, ny, nz, dx, dy, dz, xLine, yLine, zLine,
         TURBINE VARIABLES:
             n_turb,
         PHYSICS:
-            Re, Ro,
+            Re, Ro, Fr
         BUDGET VARIABLES:
             last_tidx, last_n,
 
@@ -100,6 +117,8 @@ class BudgetIO:
             self.printv("Attempting to initialize BudgetIO object at", dirname)
         else:
             self.verbose = False
+
+        self.show_warnings = show_warnings
 
         if isinstance(dirname, str):
             dirname = Path(dirname)  # using pathlib for everything
@@ -124,48 +143,46 @@ class BudgetIO:
         self.associate_turbines = False
         self.normalized_xyz = False
 
-        if padeops:
+        if padeops or src == "padeops":
             # at this point, we are reading from PadeOps output files
             self.associate_padeops = True
 
             try:
-                self._init_padeops(runid=runid, normalize_origin=normalize_origin)
+                self._init_padeops(
+                    runid=runid,
+                    normalize_origin=normalize_origin,
+                    strict_runid=strict_runid,
+                )
                 self.printv(
                     f"Initialized BudgetIO at {dirname} from PadeOps source files."
                 )
 
             except OSError as err:
-                warnings.warn(
+                self.warn(
                     "Attempted to read PadeOps output files, but at least one was missing."
                 )
                 self.print(err)
                 raise
 
-        elif mat:  # .mat saved files
+        elif mat or src == "mat":  # .mat saved files
             self.associate_mat = True
             self._init_mat()
             self.printv(f"Initialized BudgetIO at {dirname} from .mat files. ")
 
-        elif npz:  # .npz saved files
+        elif npz or src == "npz":  # .npz saved files
             self.associate_npz = True
             self._init_npz()
             self.printv(f"Initialized BudgetIO at {dirname} from .npz files. ")
 
-        elif npy:
+        elif npy or src == "npy":
             self.associate_npy = True
             self._init_npy(normalize_origin=normalize_origin)
             self.printv(f"Initialized BudgetIO at {dirname} from .npy files. ")
 
         else:
-            raise AttributeError("__init__(): ")
+            raise AttributeError("__init__(): No init associated with the source type")
 
-        # self.budget = {}  # empty dictionary
-
-        if read_budgets is not None:
-            # if read_budgets passed in as keyword argument, read budgets on initialization
-            self.read_budgets(budget_terms=read_budgets)
-
-    def _init_padeops(self, runid=None, normalize_origin=False):
+    def _init_padeops(self, runid=None, normalize_origin=False, strict_runid=False):
         """
         Initializes source files to be read from output files in PadeOps.
 
@@ -174,10 +191,12 @@ class BudgetIO:
 
         # parse namelist
         try:
-            self._read_inputfile(runid=runid)  # this initializes convenience variables
+            self._read_inputfile(
+                runid=runid, strict_runid=strict_runid
+            )  # this initializes convenience variables
 
         except IndexError as err:
-            warnings.warn(
+            self.warn(
                 f"_init_padeops(): {self.filename} could not find input file. Perhaps the directory does not exist? "
             )
             self.print(err)
@@ -196,7 +215,7 @@ class BudgetIO:
             self.printv("_init_padeops(): Initializing wind turbine array object")
 
             turb_dir = Path(self.input_nml["windturbines"]["turbinfodir"])
-            if not turb_dir.exists(): 
+            if not turb_dir.exists():
                 # hotfix: maybe this folder was copied elsewhere
                 turb_dir = self.dirname / "turb"
 
@@ -216,7 +235,7 @@ class BudgetIO:
                 )
 
             except FileNotFoundError as e:
-                warnings.warn("Turbine file not found, bypassing associating turbines.")
+                self.warn("Turbine file not found, bypassing associating turbines.")
                 self.turbineArray = None
                 self.printv(e)
             self.ta = self.turbineArray  # alias this for easier use
@@ -244,14 +263,14 @@ class BudgetIO:
             self.associate_fields = True
 
         except FileNotFoundError as e:
-            warnings.warn(f"_init_padeops(): {self.filename} no field files found.")
+            self.warn(f"_init_padeops(): {self.filename} no field files found.")
 
         # try to associate budgets
         try:
             self.all_budget_tidx = self.unique_budget_tidx(return_last=False)
             self.associate_budgets = True
         except FileNotFoundError as e:
-            warnings.warn(f"_init_padeops(): {self.filename} no budget files found.")
+            self.warn(f"_init_padeops(): {self.filename} no budget files found.")
 
         if (
             self.associate_fields
@@ -260,12 +279,12 @@ class BudgetIO:
 
         if self.associate_budgets:
             self.last_n = self.last_budget_n()  # last tidx with an associated budget
-            self.budget_tidx = (
-                self.unique_budget_tidx(return_last=True)
+            self.budget_tidx = self.unique_budget_tidx(
+                return_last=True
             )  # but may be changed by the user
             self.budget_n = self.last_n
 
-    def _read_inputfile(self, runid=None):
+    def _read_inputfile(self, runid=None, strict_runid=False):
         """
         Reads the input file (Fortran 90 namelist) associated with the CFD simulation.
 
@@ -274,11 +293,18 @@ class BudgetIO:
         runid : int
             RunID number to try and match, given inputfiles self.dirname.
             Default: None
+        strict_runid : bool
+            Must match the given runid to an input file.
 
         Returns
         -------
         None
         """
+
+        if strict_runid and runid is None:
+            raise ValueError(
+                "_read_inputfile(): `strict_runid` is True but `runid` is None."
+            )
 
         # search all files ending in '*.dat'
         inputfile_ls = list(self.dirname.glob("*.dat"))
@@ -311,19 +337,20 @@ class BudgetIO:
 
                     self.printv("\t_read_inputfile(): matched RunID with", inputfile)
                     return
+
             elif self.verbose:
                 self.printv(
                     "\t_read_inputfile(): WARNING - no keyword `runid` given to init."
                 )
 
         # if there are still no input files found, we've got a problem
+        if strict_runid:
+            raise FileNotFoundError(
+                f"_read_inputfile(): No match found for `runid` = {runid}."
+            )
 
-        warnings.warn(
-            "_read_inputfile(): No match to given `runid`, picking the first inputfile to read."
-        )
-
-        self.printv(
-            f"\t_read_inputfile(): Reading namelist file from {inputfile_ls[0]}"
+        self.warn(
+            f"_read_inputfile(): No match to given `runid`, reading namelist file from {inputfile_ls[0]}."
         )
 
         self.input_nml = parser(inputfile_ls[0])
@@ -443,15 +470,15 @@ class BudgetIO:
                         "Attempted to normalize origin to `turbine`, but no turbines associated"
                     )
                 return
-        
-        if origin is None: 
+
+        if origin is None:
             self.normalized_xyz = False
             origin = (0, 0, 0)
-        else: 
+        else:
             self.normalized_xyz = True
-        
-        # move the origin now: 
-        for ds in [self.field, self.budget]: 
+
+        # move the origin now:
+        for ds in [self.field, self.budget]:
             ds.coords["x"] = ds["x"] - (origin[0] - self.origin[0])
             ds.coords["y"] = ds["y"] - (origin[1] - self.origin[1])
             ds.coords["z"] = ds["z"] - (origin[2] - self.origin[2])
@@ -501,7 +528,7 @@ class BudgetIO:
 
         # check budget files exist
         if not (self.dirname / self.fname_budgets.format("npz")).exists():
-            warnings.warn("No associated budget files found")
+            self.warn("No associated budget files found")
         else:
             self.associate_budgets = True
             self.budget_n = None
@@ -532,7 +559,7 @@ class BudgetIO:
 
         # check budget files
         if not (self.dirname / self.fname_budgets.format("npz")).exists():
-            warnings.warn("No associated budget files found")
+            self.warn("No associated budget files found")
         else:
             self.associate_budgets = True
             self.budget_n = None
@@ -602,7 +629,7 @@ class BudgetIO:
 
         # link budgets
         if not (self.dirname / self.fname_budgets.format(".mat")).exists():
-            warnings.warn("No associated budget files found")
+            self.warn("No associated budget files found")
         else:
             self.associate_budgets = True
             self.budget_n = None
@@ -646,7 +673,7 @@ class BudgetIO:
             Format of output files, either "npz" or "mat". Default is "npz".
         """
         if not self.associate_budgets:
-            warnings.warn("write_data(): No budgets associated, returning.")
+            self.warn("write_data(): No budgets associated, returning.")
             return
 
         # declare directory to write to, default to the working directory
@@ -682,8 +709,8 @@ class BudgetIO:
         elif overwrite:
             write_arrs = True
         else:
-            warnings.warn(
-                "Existing files found. Failed to write; try passing overwrite=True to override."
+            self.warn(
+                "Existing files found. Failed to write; pass overwrite=True to override."
             )
             return
 
@@ -692,7 +719,7 @@ class BudgetIO:
             # crop the domain of the budgets here:
             save_arrs[key] = sl[key]
 
-        # write npz files!
+        # write files
         if write_arrs:
             self.printv("write_data(): attempting to save budgets to", filepath)
 
@@ -706,7 +733,7 @@ class BudgetIO:
             # SAVE METADATA
             self.write_metadata(write_dir, filename, fmt, sl["x"], sl["y"], sl["z"])
 
-            self.printv(
+            self.print(
                 "write_data: Successfully saved the following budgets: ",
                 list(key_subset),
                 "at " + str(filepath),
@@ -930,9 +957,7 @@ class BudgetIO:
                 self.clear_budgets()
 
         if self.associate_padeops:
-            self._read_budgets_padeops(
-                key_subset, tidx=tidx
-            )
+            self._read_budgets_padeops(key_subset, tidx=tidx)
         elif self.associate_npz:
             self._read_budgets_npz(key_subset, mmap=mmap)
         elif self.associate_mat:
@@ -971,9 +996,7 @@ class BudgetIO:
         try:
             self.update_time(tidx)
         except FileNotFoundError:
-            warnings.warn(
-                f"Tried to update time, but no info file found for TIDX {tidx}"
-            )
+            self.warn(f"Tried to update time, but no info file found for TIDX {tidx}")
             pass  # probably budget and field dumps not synchronized
 
         self.printv(f"Loading budgets {list(key_subset.keys())} from {tidx}")
@@ -1053,9 +1076,9 @@ class BudgetIO:
         """
 
         # add string shortcuts here... # TODO move shortcuts to budgetkey.py?
-        if budget_terms is None: 
+        if budget_terms is None:
             return dict()
-        
+
         elif budget_terms == "current":
             budget_terms = list(self.budget.keys())
 
@@ -1078,7 +1101,7 @@ class BudgetIO:
                 ]
 
         elif type(budget_terms) == str:
-            warnings.warn(
+            self.warn(
                 "keyword argument budget_terms must be either 'default', 'all', 'RANS' or a list."
             )
             return {}  # empty dictionary
@@ -1118,12 +1141,10 @@ class BudgetIO:
 
         # warn the user if some requested terms did not exist
         if len(key_subset) == 0:
-            warnings.warn(
-                "_parse_budget_terms(): No keys being returned; none matched."
-            )
+            self.warn("_parse_budget_terms(): No keys being returned; none matched.")
 
         if len(missing_terms) > 0:
-            warnings.warn(
+            self.warn(
                 "_parse_budget_terms(): Several terms were requested but the following could not be found: \
                 {}".format(
                     missing_terms
@@ -1131,7 +1152,7 @@ class BudgetIO:
             )
 
         if len(invalid_terms) > 0:
-            warnings.warn(
+            self.warn(
                 "_parse_budget_terms(): The following budget terms were requested but the following do not exist: \
                 {}".format(
                     invalid_terms
@@ -1152,7 +1173,7 @@ class BudgetIO:
         ylim=None,
         zlim=None,
         overwrite=False,
-        **sel_kwargs, 
+        **sel_kwargs,
     ):
         """
         Returns a slice of the requested budget term(s) as a dictionary.
@@ -1189,7 +1210,7 @@ class BudgetIO:
         """
 
         if sl is not None:
-            warnings.warn("Recommended usage: use sl.slice() instead")
+            self.warn("Recommended usage: use sl.slice() instead")
             return sl.slice(xlim=xlim, ylim=ylim, zlim=zlim, keys=keys)
 
         # parse what field arrays to slice into
@@ -1204,20 +1225,21 @@ class BudgetIO:
             # read budgets
             self.read_budgets(budget_terms=budget_terms, tidx=tidx, overwrite=overwrite)
             preslice = self.budget
-            budget_terms = [budget_terms] if isinstance(budget_terms, str) else budget_terms
+            budget_terms = (
+                [budget_terms] if isinstance(budget_terms, str) else budget_terms
+            )
             keys = [term for term in budget_terms if term in self.budget.keys()]
-
 
         elif field is not None:
             raise NotImplementedError("Deprecated v1.0.0")
 
         else:
-            warnings.warn(
-                "BudgetIO.slice(): either budget_terms= or field_terms= must be initialized."
+            self.printv(
+                "BudgetIO.slice(): Both budget_terms() and field_terms() were None."
             )
             return None
 
-        if len(keys) == 0: 
+        if len(keys) == 0:
             return None
 
         return preslice.slice(xlim=xlim, ylim=ylim, zlim=zlim, keys=keys, **sel_kwargs)
@@ -1351,18 +1373,20 @@ class BudgetIO:
         # by default, take the whole x,y domain
         _slice_kwargs = dict(xlim=None, ylim=None, zlim=zlim)
         _slice_kwargs.update(slice_kwargs)
-        
+
         to_merge = list(filter(None, [
             self.slice(budget_terms=budget_terms, **_slice_kwargs),
-            self.slice(field_terms=field_terms, **_slice_kwargs)
-        ]))
-        
+                    self.slice(field_terms=field_terms, **_slice_kwargs),
+                ],
+            )
+        )
+
         axes = [axis for axis in ["x", "y"] if axis in self.field.dims]
-        if len(to_merge) == 0: 
+        if len(to_merge) == 0:
             return None
-        elif len(to_merge) == 1: 
+        elif len(to_merge) == 1:
             return to_merge[0].mean(axes)
-        else: 
+        else:
             return xr.merge(to_merge).mean(axes)
 
     def unique_tidx(self, return_last=False, search_str="Run{:02d}.*_t(\d+).*.out"):
@@ -1539,7 +1563,7 @@ class BudgetIO:
             budget_list = [BudgetIO.key[t][0] for t in t_list]
 
         if len(budget_list) == 0:
-            warnings.warn("existing_budgets(): No associated budget files found. ")
+            self.warn("existing_budgets(): No associated budget files found. ")
 
         return list(np.unique(budget_list))
 
@@ -1582,7 +1606,7 @@ class BudgetIO:
             tup_list = []
             # loop through budgets
             for b in budget_list:
-                search_str=f"Run{self.runid:02d}_budget{b:01d}_term(\d+).*"
+                search_str = f"Run{self.runid:02d}_budget{b:01d}_term(\d+).*"
                 terms = self.unique_tidx(search_str=search_str)
                 tup_list += [((b, term)) for term in terms]  # these are all tuples
 
@@ -1616,7 +1640,7 @@ class BudgetIO:
 
         # else:
         if len(t_list) == 0:
-            warnings.warn("existing_terms(): No terms found for budget " + str(budget))
+            self.warn("existing_terms(): No terms found for budget " + str(budget))
 
         return t_list
 
@@ -1906,11 +1930,11 @@ class BudgetIO:
         """
         return self.read_turb_property(tidx, "vvel", **kwargs)
 
-    def get_logfiles(self, path=None, search_str="*.o[0-9]*", id=-1): 
+    def get_logfiles(self, path=None, search_str="*.o[0-9]*", id=-1):
         """
         Searches for all logfiles formatted "*.o[0-9]" (Stampede3 format)
-        and returns the entire list if `id` is None, otherwise returns 
-        the specific `id` requested. 
+        and returns the entire list if `id` is None, otherwise returns
+        the specific `id` requested.
 
         Parameters
         ----------
@@ -1919,7 +1943,7 @@ class BudgetIO:
         search_str : str, optional
             Pattern to attempt to match. Default is "*.o[0-9]*"
         id : int, optional
-            If multiple logfiles exist, selects this index of the list. 
+            If multiple logfiles exist, selects this index of the list.
             Default is -1
         """
         path = path or self.dir_name

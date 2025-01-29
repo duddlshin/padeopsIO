@@ -29,7 +29,7 @@ def copy_padeops_data(
         copy_final_restarts=False, 
         copy_fields=True,
         copy_logfiles=True,
-        copy_infofiles=False, 
+        copy_infofiles=True, 
         overwrite=False,
         quiet=False
     ): 
