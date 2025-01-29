@@ -6,10 +6,11 @@ Kirby Heck
 """
 
 import numpy as np
+import xarray as xr
 from .utils.io_utils import key_search_r
 from .budgetIO import BudgetIO
 from .budget_addons import *
-from .gridslice import Grid3, Slice, GridDataset
+from .gridslice import GridDataset
 
 
 class Budget(GridDataset):
@@ -18,11 +19,12 @@ class Budget(GridDataset):
     """
 
     __slots__ = (
-        "src", 
-        "full_arrays", 
-        "momentum_x", 
-        "momentum_y", 
-        "momentum_z", 
+        "src",
+        "full_arrays",
+        "momentum_x",
+        "momentum_y",
+        "momentum_z",
+        "vorticity_x", 
     )
 
     def __init__(self, src):
@@ -44,7 +46,9 @@ class Budget(GridDataset):
             self.attrs["lat"] = src.lat
             self.attrs["galpha"] = src.galpha
             self.attrs["Fr"] = src.Fr
-            self.attrs["is_stratified"] = key_search_r(src.input_nml, "isstratified") or False
+            self.attrs["is_stratified"] = (
+                key_search_r(src.input_nml, "isstratified") or False
+            )
             self.attrs["theta0"] = key_search_r(src.input_nml, "tref")
             self.full_arrays = src.budget  # keep "Full" BudgetIO domain size
 
@@ -54,10 +58,10 @@ class Budget(GridDataset):
         else:
             raise TypeError(f"`src` must be type BudgetIO, not {type(src)}")
 
-    def set_xlim(self, xlim=None, ylim=None, zlim=None): 
+    def set_xlim(self, xlim=None, ylim=None, zlim=None):
         """
         Updates the grid and slices into main fields
-        
+
         If no keyword arguments are given, resets the budget object
         grid to the source (LES) dimensions.
         """
@@ -66,12 +70,23 @@ class Budget(GridDataset):
         super().__init__(newslice)  # create a new parent object
         self.attrs = attrs  # save attributes
 
+    def read_budgets(self, budget_terms): 
+        """Not sure why _read_budgets() was made hidden."""
+        self._read_budgets(budget_terms)  
+
     def _read_budgets(self, budget_terms):
         """
         Reads budgets using BudgetIO, if linked.
         """
         if isinstance(self.src, BudgetIO):
-            self.src.read_budgets(budget_terms=budget_terms)
+            ds = self.src.slice(
+                budget_terms=budget_terms,
+                xlim=self.grid.x.to_numpy(),
+                ylim=self.grid.y.to_numpy(),
+                zlim=self.grid.z.to_numpy(),
+            )
+            for key in ds.data_vars.keys():
+                self[key] = ds[key]
             self.full_arrays = self.src.budget
 
         else:
