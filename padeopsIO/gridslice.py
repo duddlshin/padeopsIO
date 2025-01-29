@@ -178,7 +178,7 @@ class GridAccessor:
             for coord in [self.x, self.y, self.z]
             if coord is not None and (coord.ndim > 0 or not drop_singleton)
         ]
-        return np.meshgrid(*coords)
+        return np.meshgrid(*coords, indexing="ij")
 
     def to_dict(self):
         return {

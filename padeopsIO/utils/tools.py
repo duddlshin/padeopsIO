@@ -32,7 +32,7 @@ def get_logfiles(path, search_str="*.o[0-9]*", id=-1):
 
     if len(logfiles) == 0: 
         warnings.warn("No logfiles found, returning")
-        return None
+        return []
     elif id is None: 
         return logfiles
     else: 

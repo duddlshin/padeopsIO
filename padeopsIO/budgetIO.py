@@ -858,7 +858,7 @@ class BudgetIO:
             return
 
         loaded_keys = self.budget.keys()
-        self.budget = {}  # empty dictionary
+        self.budget = GridDataset(coords=self.budget.coords)
         self.budget_n = None
         self.budget_tidx = None  # reset to final TIDX
 
@@ -1579,27 +1579,12 @@ class BudgetIO:
 
         # find budgets by name matching with PadeOps output conventions
         if self.associate_padeops:
-
-            filenames = self.dirname.glob("*budget*")
-            runid = self.runid
-
             tup_list = []
             # loop through budgets
             for b in budget_list:
-                # capturing *_term(\d+)* in filenames
-                terms = [
-                    int(
-                        re.findall(
-                            "Run{:02d}_budget{:01d}_term(\d+).*".format(runid, b),
-                            str(name),
-                        )[0]
-                    )
-                    for name in filenames
-                    if re.findall(
-                        "Run{:02d}_budget{:01d}_term(\d+).*".format(runid, b), str(name)
-                    )
-                ]
-                tup_list += [((b, term)) for term in set(terms)]  # these are all tuples
+                search_str=f"Run{self.runid:02d}_budget{b:01d}_term(\d+).*"
+                terms = self.unique_tidx(search_str=search_str)
+                tup_list += [((b, term)) for term in terms]  # these are all tuples
 
             # convert tuples to keys
             t_list = [BudgetIO.key.inverse[key][0] for key in tup_list]
@@ -1966,7 +1951,7 @@ class BudgetIO:
         self, z_hub=0, return_degrees=False, use_fields=False, **slice_kwargs
     ):
         """Interpolate hub height wind direction (radians)."""
-        return tools.get_uhub(
+        return tools.get_phihub(
             self,
             z_hub=z_hub,
             return_degrees=return_degrees,
