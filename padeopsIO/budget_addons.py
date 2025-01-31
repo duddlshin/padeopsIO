@@ -6,102 +6,17 @@ Kirby Heck
 """
 
 import numpy as np
+import xarray as xr
+from abc import ABC
 
 from .utils import math_utils as math
-from .gridslice import Slice, SliceData
+from .utils import fluids_utils as fluids
+from .gridslice import GridDataset, Slice
+
+from .utils.fluids_utils import rs_keys, tau_keys, AD_keys
 
 
 # =============== NewBudget interface ================
-
-
-def base_aggregate(terms, ret=None, ndim=3, base_agg=0, **kwargs):
-    """
-    Aggregates all terms into dictionary by summing over extra axes
-
-    Parameters
-    ----------
-    terms : dict
-        Dictionary of np.ndarray
-    ret : dict, optional
-        Dictionary that is updated and returned. If None, returns a
-        clean dictionary. Default None
-    ndim : int, optional
-        Number of base dimensions (e.g. 3 for x, y, z). Default 3
-    base_agg : int, optional
-        Base aggregation level. Default 0
-    kwargs : dict, optional
-        Additional levels of (dis)aggregation for keys `newkey`
-
-    Returns
-    -------
-    dict or None
-        Dictionary of aggregated values, only if `ret` is None.
-    """
-    in_place = True
-    if ret is None:
-        ret = {}
-        in_place = False
-
-    for key in terms.keys():
-        # for keys that are tensors, these are separated with '_' (e.g. 'adv_j')
-        newkey = key.split("_")[0]
-
-        # check aggregation levels:
-        if newkey in kwargs.keys() and isinstance(kwargs[newkey], int):
-            agg = kwargs[newkey]
-        else:
-            agg = base_agg
-
-        # sum over all axes we are aggregating:
-        sum_axes = tuple(range(ndim + agg, terms[key].ndim))
-        summed = np.sum(terms[key], axis=sum_axes)  # OK even if sum_axes=()
-
-        if summed.ndim == ndim:
-            # fully collapsed, save into `newkey`
-            ret[newkey] = summed
-        else:
-            # save each tensor by replacing e.g. 'tau_ij' -> 'tau_12' for i=1, j=2
-            keys, flattened = flatten_tensor(summed, ndim, return_keys=True)
-            for key, arr in zip(keys, flattened):
-                ret[f"{newkey}_{key}"] = arr
-
-    if not in_place:
-        return ret  # return if `ret` is not given
-
-
-def flatten_tensor(a, ndim_new, return_keys=True, index_st=1):
-    """
-    Flatten a tensor down to ndim+1 axes.
-    reshape tensor by flattening the last `ndim` - `ndim_grid` axes
-    for example, (8,8,8,4,3) -> (8,8,8,12)
-
-    Parameters
-    ----------
-    a : ndarray
-    ndim_new : int
-        Number of dimensions to flatten to
-    return_keys : bool (optional)
-        Returns keys if True. Default True.
-    index_st : int (optional)
-        Value to start indexing from. Default is 1.
-    """
-    dims = a.shape
-
-    if len(dims) > ndim_new + 1:
-        new_dim = np.product(dims[ndim_new:])
-        new_shape = dims[:ndim_new] + (new_dim,)
-        tmp = np.reshape(a, new_shape)
-    else:
-        tmp = a
-
-    # move this to the 0-axis so it can be iterated
-    tmp = np.moveaxis(tmp, -1, 0)
-    if return_keys:
-        # returns a keys array [1, 2, ..., new_dim]
-        keys = np.arange(tmp.shape[0]) + index_st
-        return keys, tmp
-
-    return tmp  # default: return reshaped array
 
 
 def compute_delta_field(
@@ -160,7 +75,7 @@ def compute_delta_field(
 # ======================== Budget TEMPLATE ========================
 
 
-class NewBudget(dict):
+class NewBudget(GridDataset, ABC):
     """
     Informal interface for new budget classes to add (e.g. RANS).
 
@@ -169,10 +84,9 @@ class NewBudget(dict):
         d<ui'uj'>/dxj,
     the base level of aggregation (level 0) is to sum over j. If we want one level lower
     of diaggregation (level 1), the j-indices are not summed.
-
-    # TODO: make this extend the `Slice` class
     """
 
+    __slots__ = ("budget", "base_terms")
     req_keys = []  # required keys go here (e.g. 'ubar', etc...)
     opt_keys = []  # optional keys (e.g. 'xAD', etc... )
 
@@ -180,34 +94,60 @@ class NewBudget(dict):
 
     def __init__(self, budget, base_agg=0):
         """Blueprint for budgets"""
+        super().__init__(coords=budget.coords)
         self.budget = budget
         self.base_terms = None  # these are computed in self.compute()
-        self.base_agg = base_agg  # base level of aggregation, 0 is the most aggregated
+        self.attrs["base_agg"] = (
+            base_agg  # base level of aggregation, 0 is the most aggregated
+        )
 
-    def compute(self, level=None, custom=False, **kwargs):
+    def clear(self):
+        """Clear all terms"""
+        for var in list(self.data_vars.keys()):
+            del self[var]  # wipes these keys
+
+    def pop(self, key):
+        """Pop a key"""
+        var = self[key]
+        del self[key]
+        return var
+
+    def compute(self, aggregate=None, custom=False, **kwargs):
         """Compute disaggregated budget terms"""
-        self._check_terms()  # make sure the terms exist to compute budgets
-        self._compute_budget()  # carry out budget computation
-        # aggregate terms and save them in the dictionary
-        self.aggregate(level=level, custom=custom, **kwargs)
+        # make sure the terms exist to compute budgets
+        self._check_terms()
 
-    def aggregate(self, level=None, custom=False, **kwargs):
+        # carry out budget computation
+        self._compute_budget()
+
+        # aggregate terms and save them in the dictionary
+        self.aggregate(aggregate=aggregate, custom=custom, **kwargs)
+
+    def aggregate(self, aggregate=None, custom=False, **kwargs):
         """Aggregate similar budget terms"""
 
         self.clear()  # clear previous aggregation
-        if level is None:  # default aggregation
-            level = self.base_agg
+        if aggregate is None:  # default aggregation
+            aggregate = self.base_agg
 
-        if not custom:  # type(level) == int and level >= 0:
-            base_aggregate(
-                self.base_terms,
-                ret=self,
-                ndim=self.budget.grid.ndim,
-                base_agg=level,
-                **kwargs,
-            )
+        if not custom:
+            try:
+                ret = math.new_aggregation(
+                    self.base_terms,
+                    base_agg=aggregate,
+                    **kwargs,
+                )
+            except ValueError as e:
+                # catch errors in new_aggregation()
+                raise ValueError(
+                    "aggregate(): cannot take base_agg < 0. Perhaps try passing custom=True"
+                )
+
+            for key in ret.data_vars.keys():
+                self[key] = ret[key]
+
         else:  # add a custom aggregation on top of base level
-            self._aggregate_custom(level, **kwargs)
+            self._aggregate_custom(aggregate, **kwargs)
 
     def _check_terms(self, budget=None):
         """
@@ -244,7 +184,7 @@ class NewBudget(dict):
 
         if len(missing_keys_opt) > 0:  # try also to load optional keys:
             try:
-                budget._read_budgets(missing_keys_opt)
+                budget.read_budgets(missing_keys_opt)
 
             except AttributeError as e:
                 print(
@@ -281,11 +221,13 @@ class LESMomentum(NewBudget):
     Class for LES momentum budgets ("read directly from PadeOps")
     """
 
+    __slots__ = ()
+
     def _compute_budget(self):
         """
         Assembles LES momentum budgets directly from PadeOps.
         """
-        terms = {}
+        terms = GridDataset(coords=self.coords)
         for key in self.req_keys + self.opt_keys:
             try:
                 terms[key] = self.budget[key]
@@ -293,8 +235,9 @@ class LESMomentum(NewBudget):
                 print("_compute_budget(): could not find term", key)
 
         # compute residual
-        terms["residual"] = sum(terms[key] for key in terms.keys())
-
+        # terms["residual"] = sum(terms[key] for key in terms.keys())
+        fluids.compute_residual(terms, in_place=True)
+        
         self.base_terms = terms
 
 
@@ -303,10 +246,11 @@ class LESMomentum_x(LESMomentum):
     Reads LES x-momentum budgets.
     """
 
+    __slots__ = ()
     req_keys = ["DuDt", "dpdx", "xSGS"]
     opt_keys = ["xAD", "xCor", "xGeo"]
 
-    def _aggregate_custom(self, aggregate):
+    def _aggregate_custom(self, aggregate, **kwargs):
         """
         Combines the coriolis and geostrophic terms. This is the "-1" level of aggregation
         (combining non-tensor terms).
@@ -317,16 +261,17 @@ class LESMomentum_x(LESMomentum):
             Dictionary {'coriolis': -1} or int (-1) to aggregate Coriolis terms
         """
         # may throw KeyError
-        if aggregate == -1 or type(aggregate) == dict and aggregate["coriolis"] == -1:
-            terms = self.base_terms
-            for key in terms.keys():
-                if key in ["xCor", "xGeo"]:
-                    continue
-                self[key] = terms[key]
-            self["coriolis"] = terms["xCor"] + terms["xGeo"]
+        if aggregate == -1:
+            kwargs = {"coriolis": -1}
+            aggregate = 0
 
-        else:
-            raise ValueError
+        self.aggregate(aggregate)
+
+        if "coriolis" in kwargs and kwargs["coriolis"] == -1:
+            self["coriolis"] = self["xCor"] + self["xGeo"]
+            del self["xCor"], self["xGeo"]
+
+        self["residual"] = self.pop("residual")  # move the residual to the end
 
 
 class LESMomentum_y(LESMomentum):
@@ -334,10 +279,11 @@ class LESMomentum_y(LESMomentum):
     Reads LES y-momentum budgets.
     """
 
+    __slots__ = ()
     req_keys = ["DvDt", "dpdy", "ySGS"]
     opt_keys = ["yAD", "yCor", "yGeo"]
 
-    def _aggregate_custom(self, level, **kwargs):
+    def _aggregate_custom(self, aggregate, **kwargs):
         """
         Combines the coriolis and geostrophic terms. This is the "-1" level of aggregation
         (combining non-tensor terms).
@@ -349,11 +295,11 @@ class LESMomentum_y(LESMomentum):
         kwargs : dict
         """
         # may throw KeyError
-        if level == -1:
+        if aggregate == -1:
             kwargs = {"coriolis": -1}
-            level = 0
+            aggregate = 0
 
-        self.aggregate(level)
+        self.aggregate(aggregate)
 
         if "coriolis" in kwargs and kwargs["coriolis"] == -1:
             self["coriolis"] = self["yCor"] + self["yGeo"]
@@ -362,14 +308,25 @@ class LESMomentum_y(LESMomentum):
         self["residual"] = self.pop("residual")  # move the residual to the end
 
 
+class LESMomentum_z(LESMomentum):
+    """
+    Reads LES z-momentum budgets.
+    """
+
+    __slots__ = ()
+    req_keys = ["DwDt", "dpdz", "zSGS"]
+    opt_keys = ["zBuoy"]
+
+
 # =========================== RANS Budgets ===============================
 
 
-class BudgetMomentum(NewBudget):
+class RANSBudget(NewBudget):
     """
     Base class for filtered RANS budgets.
     """
 
+    __slots__ = ()
     req_keys = [
         ["ubar", "vbar", "wbar", "pbar", "tau11", "tau12", "tau13", "uu", "uv", "uw"],
         ["ubar", "vbar", "wbar", "pbar", "tau12", "tau22", "tau23", "uv", "vv", "vw"],
@@ -410,19 +367,19 @@ class BudgetMomentum(NewBudget):
             Reference potential temperature (K)
         """
         super().__init__(budget, base_agg)
-        self.Ro = Ro
-        self.Fr = Fr
-        self.lat = lat * np.pi / 180
-        self.galpha = galpha * np.pi / 180
-        self.is_stratified = is_stratified
-        self.theta0 = theta0
-        self.direction = None
+        self.attrs["Ro"] = Ro
+        self.attrs["Fr"] = Fr
+        self.attrs["lat"] = lat * np.pi / 180
+        self.attrs["galpha"] = galpha * np.pi / 180
+        self.attrs["is_stratified"] = is_stratified
+        self.attrs["theta0"] = theta0
+        self.attrs["direction"] = None
 
     def _compute_budget(self):
         """
         Computes RANS momentum budgets in x.
         """
-        self.base_terms = compute_RANS(
+        self.base_terms = fluids.compute_RANS(
             self.budget,
             self.direction,
             Ro=self.Ro,
@@ -433,12 +390,17 @@ class BudgetMomentum(NewBudget):
             theta0=self.theta0,
         )
 
-    def _aggregate_custom(self, level, **kwargs):
-        if level == -1:
+    def _aggregate_custom(self, aggregate, **kwargs):
+        """
+        For RANS Budgets, custom aggregation allows for the following:
+            Passing `totaladv=-1` aggregates mean advection and Reynolds stresses
+            Passing `coriolis=-1` aggregates Coriolis + Geostrophic
+        """
+        if aggregate == -1:
             kwargs = {"totaladv": -1, "coriolis": -1}
-            level = 0
+            aggregate = 0
 
-        self.aggregate(level, **kwargs)
+        self.aggregate(aggregate, **kwargs)
         if "totaladv" in kwargs.keys() and kwargs["totaladv"] == -1:
             self["totaladv"] = self["adv"] + self["rs"]
             del self["rs"], self["adv"]
@@ -450,13 +412,14 @@ class BudgetMomentum(NewBudget):
         self["residual"] = self.pop("residual")  # move the residual to the end
 
 
-class BudgetMomentum_x(BudgetMomentum):
+class RANS_x(RANSBudget):
     """
     Computes the RANS budgets in the y-direction.
     """
 
-    req_keys = BudgetMomentum.req_keys[0]
-    opt_keys = BudgetMomentum.opt_keys[0]
+    __slots__ = ()
+    req_keys = RANSBudget.req_keys[0]
+    opt_keys = RANSBudget.opt_keys[0]
 
     def __init__(self, *args, **kwargs):
         """
@@ -465,16 +428,17 @@ class BudgetMomentum_x(BudgetMomentum):
         see BudgetMomentum()
         """
         super().__init__(*args, **kwargs)
-        self.direction = 0  # y-direction
+        self.attrs["direction"] = 0  # x-direction
 
 
-class BudgetMomentum_y(BudgetMomentum):
+class RANS_y(RANSBudget):
     """
     Computes the RANS budgets in the y-direction.
     """
 
-    req_keys = BudgetMomentum.req_keys[1]
-    opt_keys = BudgetMomentum.opt_keys[1]
+    __slots__ = ()
+    req_keys = RANSBudget.req_keys[1]
+    opt_keys = RANSBudget.opt_keys[1]
 
     def __init__(self, *args, **kwargs):
         """
@@ -483,16 +447,17 @@ class BudgetMomentum_y(BudgetMomentum):
         see BudgetMomentum()
         """
         super().__init__(*args, **kwargs)
-        self.direction = 1  # y-direction
+        self.attrs["direction"] = 1  # y-direction
 
 
-class BudgetMomentum_z(BudgetMomentum):
+class RANS_z(RANSBudget):
     """
     Computes the RANS budgets in the y-direction.
     """
 
-    req_keys = BudgetMomentum.req_keys[2]
-    opt_keys = BudgetMomentum.opt_keys[2]
+    __slots__ = ()
+    req_keys = RANSBudget.req_keys[2]
+    opt_keys = RANSBudget.opt_keys[2]
 
     def __init__(self, *args, **kwargs):
         """
@@ -501,97 +466,7 @@ class BudgetMomentum_z(BudgetMomentum):
         see BudgetMomentum()
         """
         super().__init__(*args, **kwargs)
-        self.direction = 2  # z-direction
-
-
-# some helpful key pairings:
-rs_keys = [["uu", "uv", "uw"], ["uv", "vv", "vw"], ["uw", "vw", "ww"]]
-tau_keys = [
-    ["tau11", "tau12", "tau13"],
-    ["tau12", "tau22", "tau23"],
-    ["tau13", "tau23", "tau33"],
-]
-AD_keys = ["xAD", "yAD", "zAD"]
-
-
-def compute_RANS(
-    field_dict,
-    i,
-    Ro=None,
-    lat=None,
-    galpha=0,
-    fplane=True,
-    is_stratified=True,
-    theta0=0,
-    Fr=0.4,
-):
-    """
-    Computes RANS momentum budgets in the i direction.
-
-    Parameters
-    ----------
-    field_dict : Slice
-    i : int
-        Direction, either 0, 1, 2 (x, y, z, respectively)
-    Ro : float
-        Rossby number, defined Ro = G/(\Omega L)
-    lat : float
-        Latitude, in radians. Default None
-    galpha : float, optional
-        Geostrophic wind direction, in radians. Default 0
-    fplane : bool
-        Use f-plane approximation if true, default True
-    is_stratified : bool
-        Adds buoyancy term to z-momentum equations if True. Default True.
-    theta0 : float
-        Reference potential temperature in buoyancy equation. Default 0.
-    Fr : float
-        Froude number Fr = U/sqrt(gL). Default 0.4.
-    """
-
-    dims = field_dict.grid.shape
-    dxi = field_dict.grid.dxi
-    u_j = math.assemble_tensor_1d(field_dict, ["ubar", "vbar", "wbar"])
-    uu_ij = math.assemble_tensor_1d(field_dict, rs_keys[i])
-    tau_ij = math.assemble_tensor_1d(field_dict, tau_keys[i])
-    # der = DerOps(dx=field_dict.grid.dxi)
-
-    duidxj = math.gradient(u_j[..., i], dxi)
-    duiujdxj = math.div(uu_ij, dxi)
-    sgs_ij = math.div(tau_ij, dxi)
-
-    G = [np.cos(galpha), np.sin(galpha), 0]
-    dpdxi = math.gradient(field_dict["pbar"], dxi, axis=i)
-
-    ret = {}
-    ret["adv_j"] = -u_j * duidxj
-    ret["prss"] = -dpdxi
-    ret["rs_j"] = -duiujdxj
-    ret["sgs_ij"] = -sgs_ij
-    try:
-        ret["adm"] = field_dict[AD_keys[i]]
-    except KeyError:
-        pass
-        # not including ADM
-
-    ret["geo"] = (
-        -2 / Ro * np.sin(lat) * math.e_ijk(i, 1 - i, 2) * G[1 - i] * np.ones(dims)
-    )
-    if fplane:
-        ret["cor"] = 2 / Ro * np.sin(lat) * math.e_ijk(i, 1 - i, 2) * (u_j[..., 1 - i])
-    else:
-        raise NotImplementedError("TODO: add full coriolis term")
-
-    if i == 2 and is_stratified and theta0 is not None:  # stratification term:
-        Tbar = field_dict["Tbar"]
-        tref = np.mean(Tbar, (0, 1))  # how buoyancy is defined in PadeOps
-        ret["buoy"] = (Tbar - tref) / (theta0 * Fr**2)
-
-    # aggregate to compute residual
-    tmp = base_aggregate(ret, ndim=len(dims), base_agg=0)
-    ret["residual"] = sum(tmp[key] for key in tmp.keys())
-
-    return Slice(ret, grid=field_dict.grid, strict_shape=False)
+        self.attrs["direction"] = 2  # z-direction
 
 
 # =========================== RANS Deficit Budgets ===============================
@@ -602,8 +477,9 @@ class BudgetDeficit(NewBudget):
     Base class for filtered RANS deficit budgets.
     """
 
-    req_keys = BudgetMomentum.req_keys
-    opt_keys = BudgetMomentum.opt_keys
+    __slots__ = ()
+    req_keys = RANSBudget.req_keys
+    opt_keys = RANSBudget.opt_keys
 
     def __init__(
         self,
@@ -649,6 +525,7 @@ class BudgetDeficit(NewBudget):
             Ro=self.Ro,
             lat=self.lat,
         )
+        fluids.compute_residual(self.base_terms, in_place=True)
 
     def _check_terms(self):
         """Check terms for background and primary budget objects"""
@@ -682,6 +559,7 @@ class BudgetDeficit_x(BudgetDeficit):
     Computes the RANS deficit budgets in the x-direction.
     """
 
+    __slots__ = ()
     req_keys = BudgetDeficit.req_keys[0]
     opt_keys = BudgetDeficit.opt_keys[0]
 
@@ -700,6 +578,7 @@ class BudgetDeficit_y(BudgetDeficit):
     Computes the RANS deficit budgets in the y-direction.
     """
 
+    __slots__ = ()
     req_keys = BudgetDeficit.req_keys[1]
     opt_keys = BudgetDeficit.opt_keys[1]
 
@@ -716,6 +595,8 @@ class BudgetDeficit_y(BudgetDeficit):
 def deficit_budget(full, bkgd, i, dxi, Ro=None, lat=None, fplane=True, avg_xy=True):
     """
     Computes the streamwise momentum deficit budget
+
+    NOTE: NOT UPDATED FOR XARRAY INTEGRATION
 
     Parameters
     ----------
@@ -786,7 +667,7 @@ def deficit_budget(full, bkgd, i, dxi, Ro=None, lat=None, fplane=True, avg_xy=Tr
     ret["wakeadv_j"] = -deltau_j * dUidxj
 
     # aggregate to compute residual
-    tmp = base_aggregate(ret, ndim=len(dims), base_agg=0)
+    tmp = math.new_aggregation(ret, ndim=len(dims), base_agg=0)
     ret["residual"] = sum(tmp[key] for key in tmp.keys())
 
     return Slice(ret, grid=full.grid)
@@ -800,6 +681,7 @@ class BudgetVorticity(NewBudget):
     Base class for filtered vorticity budgets.
     """
 
+    __slots__ = ()
     req_keys = [
         "ubar",
         "vbar",
@@ -844,18 +726,18 @@ class BudgetVorticity(NewBudget):
             Reference potential temperature (K)
         """
         super().__init__(budget, base_agg)
-        self.Ro = Ro
-        self.Fr = Fr
-        self.lat = lat * np.pi / 180
-        self.fplane = fplane
-        self.theta0 = theta0
-        self.direction = None  # overwrite this in sub-classes
+        self.attrs["Ro"] = Ro
+        self.attrs["Fr"] = Fr
+        self.attrs["lat"] = lat * np.pi / 180
+        self.attrs["fplane"] = fplane
+        self.attrs["theta0"] = theta0
+        self.attrs["direction"] = None  # overwrite this in sub-classes
 
     def _compute_budget(self):
         """
         Computes vorticity budgets
         """
-        self.base_terms = compute_vort_budget(
+        self.base_terms = fluids.compute_vort_budget(
             self.budget,
             self.direction,
             Ro=self.Ro,
@@ -864,6 +746,7 @@ class BudgetVorticity(NewBudget):
             Fr=self.Fr,
             theta0=self.theta0,
         )
+        fluids.compute_residual(self.base_terms, in_place=True)
 
     def _aggregate_custom(self, level, **kwargs):
         """Define custom aggregation here"""
@@ -884,6 +767,8 @@ class BudgetVorticity_x(BudgetVorticity):
     Vorticity budgets in x
     """
 
+    __slots__ = ()
+
     def __init__(self, *args, **kwargs):
         """
         Initialize non-dimensional RANS budget terms.
@@ -891,181 +776,36 @@ class BudgetVorticity_x(BudgetVorticity):
         see BudgetMomentum()
         """
         super().__init__(*args, **kwargs)
-        self.direction = 0  # x-direction
+        self.attrs["direction"] = 0  # x-direction
 
-
-def compute_vort(field_dict, in_place=False):
+class BudgetVorticity_y(BudgetVorticity):
     """
-    Computes the vorticity vector w_i = [w_x, w_y, w_z]
-
-    Parameters
-    ----------
-    sl_dict : Slice()
-        Budget object or Slice() from BudgetIO.slice()
-    in_place : bool, optional
-        Returns result if False. Default False
-
-    Returns
-    -------
-    w_i : (Nx, Ny, Nz, 3)
-        4D Vorticity tensor, if in_place=False
+    Vorticity budgets in y
     """
 
-    u_i = math.assemble_tensor_1d(field_dict, ["ubar", "vbar", "wbar"])
-    dxi = field_dict.grid.dxi
+    __slots__ = ()
 
-    dukdxj = math.gradient(
-        u_i, dxi, axis=(0, 1, 2), stack=-2
-    )  # stack along -2 axis so indexing is x, y, z, j, k
+    def __init__(self, *args, **kwargs):
+        """
+        Initialize non-dimensional RANS budget terms.
 
-    w_i = np.zeros(field_dict.grid.shape + (3,))
-    for i in range(3):  # can this be done w/o a loop?
-        w_i[..., i] = np.sum(math.E_ijk[i, ...] * dukdxj, axis=(-2, -1))
+        see BudgetMomentum()
+        """
+        super().__init__(*args, **kwargs)
+        self.attrs["direction"] = 1  # y-direction
 
-    if in_place:
-        field_dict["w_i"] = w_i
-    else:
-        return SliceData(w_i, grid=field_dict.grid, name="w_i", strict_shape=False)
-
-
-def compute_vort_budget(
-    field_dict,
-    direction,
-    Ro=None,
-    lat=45.0,
-    fplane=True,
-    Fr=None,
-    theta0=300.0,
-):
+class BudgetVorticity_z(BudgetVorticity):
     """
-    Computes the offline vorticity budget in three component directions.
-
-    All terms are nd arrays [x,y,z,i, ...] for the i-direction of vorticity.
-
-    Parameters
-    ----------
-    field_dict : Slice()
-        from BudgetIO.slice(), expects velocity, temperature, subgrid stresses, and reynolds stresses
-    direction : int or list
-        Direction (0, 1, 2), or a tuple/list of directions
-        (e.g., i=(0, 1)) computes x, y vorticity
-    Ro : float
-        Rossby number as defined in LES
-    lat : float
-        Latitude in degrees, default is 45, NOT None.
-    fplane : bool
-        Use fplane approximation. Default True.
-    Fr : float
-        Froude number, defined Fr = G/sqrt(g*L_c)
-    theta0 : float
-        Reference potential temperature, Default 300 [K].
-
-    Returns
-    -------
-    dict
-        Vorticity budget terms
+    Vorticity budgets in z
     """
 
-    # if der is None:
-    #     der = DerOps(dx=dx)
-    dims = field_dict.grid.shape
-    dxi = field_dict.grid.dxi
-    dirs = np.unique(direction)  # np.unique returns an at least 1D array
+    __slots__ = ()
 
-    # allocate memory for all the tensors
-    adv_ij = np.zeros(dims + (len(dirs), 3))
-    str_ij = np.zeros(dims + (len(dirs), 3))
-    buoy_ij = np.zeros(dims + (len(dirs), 3))
-    sgs_ijkm = np.zeros(dims + (len(dirs), 3, 3, 3))  # 7D, [x, y, z, i, j, k, m]
-    if fplane:
-        cor_i = np.zeros(dims + (len(dirs),))
-    else:
-        cor_i = np.zeros(dims + (len(dirs), 3))
-    rs_ijkm = np.zeros(dims + (len(dirs), 3, 3, 3))  # also 7D
+    def __init__(self, *args, **kwargs):
+        """
+        Initialize non-dimensional RANS budget terms.
 
-    # check all required tensors exist:  (may throw KeyError)
-    u_i = math.assemble_tensor_1d(field_dict, keys=["ubar", "vbar", "wbar"])
-    w_i = compute_vort(field_dict, in_place=False)
-    # save vorticity keys to the budget object:
-    field_dict["w_i"] = w_i
-    uiuj = math.assemble_tensor_nd(field_dict, rs_keys)
-    tau_ij = math.assemble_tensor_nd(field_dict, tau_keys)
-    Tbar = field_dict["Tbar"]
-
-    # compute tensor quantities:
-    for ii in dirs:
-        # compute coriolis
-        if fplane:
-            cor_i[:, :, :, ii] = (
-                2 / Ro * np.sin(lat) * math.gradient(u_i[:, :, :, ii], dxi, axis=2)
-            )
-        else:
-            raise NotImplementedError(
-                "compute_vort_budget(): fplane = False not implemeneted"
-            )
-
-        for jj in range(3):
-            # advection (on RHS, flipped sign)
-            adv_ij[:, :, :, ii, jj] = -u_i[:, :, :, jj] * math.gradient(
-                w_i[:, :, :, ii], dxi, axis=jj
-            )
-
-            # vortex stretching
-            str_ij[:, :, :, ii, jj] = w_i[:, :, :, jj] * math.gradient(
-                u_i[:, :, :, ii], dxi, axis=jj
-            )
-
-            # buoyancy torque
-            if theta0 is not None:
-                eijk = math.e_ijk(ii, jj, 2)  # buoyancy term has k=3
-                if eijk == 0:
-                    buoy_ij[:, :, :, ii, jj] = 0  # save compute time by skipping these
-                else:
-                    buoy_ij[:, :, :, ii, jj] = (
-                        eijk * math.gradient(Tbar, axis=jj) / (Fr**2 * theta0),
-                        dxi,
-                    )
-
-            for kk in range(3):
-                # nothing is ijk at the moment, Coriolis w/o trad. approx. is, however
-
-                for mm in range(3):
-                    # compute permutation operator
-                    eijk = math.e_ijk(ii, jj, kk)
-
-                    if eijk == 0:
-                        sgs_ijkm[:, :, :, ii, jj, kk, mm] = 0
-                        rs_ijkm[:, :, :, ii, jj, kk, mm] = 0
-                    else:
-                        sgs_ijkm[:, :, :, ii, jj, kk, mm] = eijk * math.gradient(
-                            math.gradient(
-                                -tau_ij[:, :, :, kk, mm],
-                                dxi,
-                                axis=mm,
-                            ),
-                            dxi,
-                            axis=jj,
-                        )
-                        rs_ijkm[:, :, :, ii, jj, kk, mm] = eijk * math.gradient(
-                            math.gradient(-uiuj[:, :, :, kk, mm], dxi, axis=mm),
-                            dxi,
-                            axis=jj,
-                        )
-
-    # now sum over extra axes to collapse terms
-    ret = {
-        "adv_j": adv_ij,
-        "str_j": str_ij,
-        "buoy_j": buoy_ij,
-        "sgs_jkm": sgs_ijkm,
-        "cor": cor_i,
-        "rs_jkm": rs_ijkm,
-    }
-
-    agg = base_aggregate(ret, ndim=len(dims), base_agg=1)  # aggregate along i
-    ret["residual"] = sum(agg[key] for key in agg.keys())
-
-    for key in ret.keys():  # collapse extra dims
-        ret[key] = np.squeeze(ret[key])
-
-    return Slice(ret, grid=field_dict.grid, strict_shape=False)
+        see BudgetMomentum()
+        """
+        super().__init__(*args, **kwargs)
+        self.attrs["direction"] = 2  # z-direction
