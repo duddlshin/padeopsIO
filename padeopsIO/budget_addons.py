@@ -18,63 +18,6 @@ from .utils.fluids_utils import rs_keys, tau_keys, AD_keys
 
 # =============== NewBudget interface ================
 
-
-def compute_delta_field(
-    primary, precursor, budget_terms=None, avg_xy=True, in_place=True
-):
-    """
-    Computes deficit fields between primary and precursor simulations, e.g.:
-        \Delta u = u_primary - u_precursor
-
-    This definition follows the double decomposition in Martinez-Tossas, et al. (2021).
-
-    Parameters
-    ----------
-    primary : BudgetIO
-        Primary simulation budget object
-    precursor : BudgetIO
-        Precursor simulation budget object
-    budget_terms : list, optional
-        Budget terms to compute deficits.
-        Default is all shared keys between primary and precursor
-    avg_xy : bool, optional
-        Averages precursor terms horizontally if True. Default True
-
-    Returns
-    -------
-    field : dict
-        Deficit fields, either in-place if in_place=True, or
-
-    """
-
-    if budget_terms is None:
-        budget_terms = set(primary.keys()) & set(precursor.keys())
-
-    # background fields
-    if avg_xy:
-        tmp = {key: np.mean(precursor[key], (0, 1)) for key in budget_terms}
-    else:
-        tmp = precursor
-
-    if in_place:
-        field = primary
-    else:
-        # field = copy.deepcopy(primary)
-        field = {}
-
-    # for each key, compute primary - precursor:
-    for key in budget_terms:
-        dkey = key + "_deficit"
-        if dkey in field.keys():
-            continue  # skip repeat computations
-        field[dkey] = primary[key] - tmp[key]
-
-    return field
-
-
-# ======================== Budget TEMPLATE ========================
-
-
 class NewBudget(GridDataset, ABC):
     """
     Informal interface for new budget classes to add (e.g. RANS).
@@ -235,7 +178,6 @@ class LESMomentum(NewBudget):
                 print("_compute_budget(): could not find term", key)
 
         # compute residual
-        # terms["residual"] = sum(terms[key] for key in terms.keys())
         fluids.compute_residual(terms, in_place=True)
         
         self.base_terms = terms
@@ -369,8 +311,8 @@ class RANSBudget(NewBudget):
         super().__init__(budget, base_agg)
         self.attrs["Ro"] = Ro
         self.attrs["Fr"] = Fr
-        self.attrs["lat"] = lat * np.pi / 180
-        self.attrs["galpha"] = galpha * np.pi / 180
+        self.attrs["lat"] = lat * np.pi / 180 if lat else None
+        self.attrs["galpha"] = galpha * np.pi / 180 if galpha else 0
         self.attrs["is_stratified"] = is_stratified
         self.attrs["theta0"] = theta0
         self.attrs["direction"] = None
@@ -389,6 +331,7 @@ class RANSBudget(NewBudget):
             Fr=self.Fr,
             theta0=self.theta0,
         )
+        fluids.compute_residual(self.base_terms, in_place=True)
 
     def _aggregate_custom(self, aggregate, **kwargs):
         """
@@ -491,7 +434,7 @@ class BudgetDeficit(NewBudget):
         lat=None,
     ):
         """
-        Initialize non-dimensional RANS budget terms.
+        Initialize non-dimensional RANS-deficit budget terms.
 
         Parameters
         ----------
@@ -507,21 +450,20 @@ class BudgetDeficit(NewBudget):
             Latitude, in degrees
         """
         super().__init__(budget, base_agg)
-        self.bkgd = bkgd_budget
-        self.Ro = Ro
-        self.Fr = Fr
-        self.lat = lat * np.pi / 180
-        self.direction = None  # overwrite this in sub-classes
+        self.attrs["bkgd"] = bkgd_budget
+        self.attrs["Ro"] = Ro
+        self.attrs["Fr"] = Fr
+        self.attrs["lat"] = lat * np.pi / 180
+        self.attrs["direction"] = None  # overwrite this in sub-classes
 
     def _compute_budget(self):
         """
         Computes RANS momentum budgets in x.
         """
-        self.base_terms = deficit_budget(
+        self.base_terms = fluids.deficit_budget(
             self.budget,
             self.bkgd,
             self.direction,
-            dx=self.budget.dxi,
             Ro=self.Ro,
             lat=self.lat,
         )
@@ -570,7 +512,7 @@ class BudgetDeficit_x(BudgetDeficit):
         see BudgetMomentum()
         """
         super().__init__(*args, **kwargs)
-        self.direction = 0  # x-direction
+        self.attrs["direction"] = 0  # x-direction
 
 
 class BudgetDeficit_y(BudgetDeficit):
@@ -589,88 +531,7 @@ class BudgetDeficit_y(BudgetDeficit):
         see BudgetMomentum()
         """
         super().__init__(*args, **kwargs)
-        self.direction = 1  # y-direction
-
-
-def deficit_budget(full, bkgd, i, dxi, Ro=None, lat=None, fplane=True, avg_xy=True):
-    """
-    Computes the streamwise momentum deficit budget
-
-    NOTE: NOT UPDATED FOR XARRAY INTEGRATION
-
-    Parameters
-    ----------
-    full : dict
-        Dictionary of full velocity fields
-    bkgd : dict
-        Dictionary of background fields
-    i : int
-        Direction to compute budgets (0 -> x, 1 -> y, 2 -> z)
-    dxi : tuple
-        Vector (dx, dy, dz)
-
-    Returns
-    -------
-    dict
-        Dictionary of deficit fields
-    """
-
-    if i == 2:
-        raise NotImplementedError("TODO: Delta_w deficit budgets")
-
-    ret = {}
-    dims = full.grid.shape
-
-    # compute deficit fields:
-    compute_delta_field(full, bkgd, avg_xy=avg_xy, in_place=True)
-
-    # construct tensors
-    deltau_j = math.assemble_tensor_1d(
-        full, ["ubar_deficit", "vbar_deficit", "wbar_deficit"]
-    )
-    u_j = math.assemble_tensor_1d(full, ["ubar", "vbar", "wbar"])  # full field
-    U_j = math.assemble_tensor_1d(bkgd, ["ubar", "vbar", "wbar"])  # bkgd field
-    uu_full_ij = math.assemble_tensor_1d(full, rs_keys[i])
-    uu_bkgd_ij = math.assemble_tensor_1d(bkgd, rs_keys[i])
-    tau_full_ij = math.assemble_tensor_1d(full, tau_keys[i])
-    tau_bkgd_ij = math.assemble_tensor_1d(bkgd, tau_keys[i])
-
-    # numerics:
-    dduidxj = math.gradient(deltau_j[..., i], dxi)  # gradient of velocity deficit field
-    dUidxj = math.gradient(U_j[..., i], dxi)  # gradient of background velocity field
-    dpdxi = math.gradient(full["pbar_deficit"], dxi, axis=i)
-    duiujdxj_full = math.div(uu_full_ij, dxi)
-    duiujdxj_bkgd = math.div(uu_bkgd_ij, dxi)
-    sgs_ij = math.div(
-        tau_full_ij - tau_bkgd_ij, dxi
-    )  # could split this into components as well
-
-    # compute momentum deficit terms
-    ret["adv_j"] = -u_j * dduidxj  # deficit advection
-    ret["prss"] = -dpdxi
-    ret["sgs_j"] = -sgs_ij
-    ret["rsfull_j"] = -duiujdxj_full
-    ret["rsbkgd_j"] = duiujdxj_bkgd
-
-    try:
-        ret["adm"] = full[AD_keys[i]]
-    except KeyError:
-        pass
-        # not including ADM
-
-    if fplane:
-        ret["cor"] = (
-            2 * math.e_ijk(i, 1 - i, 2) * np.sin(lat) / Ro * deltau_j[..., 1 - i]
-        )
-    else:
-        raise NotImplementedError("TODO: Deficit budgets full Coriolis")
-    ret["wakeadv_j"] = -deltau_j * dUidxj
-
-    # aggregate to compute residual
-    tmp = math.new_aggregation(ret, ndim=len(dims), base_agg=0)
-    ret["residual"] = sum(tmp[key] for key in tmp.keys())
-
-    return Slice(ret, grid=full.grid)
+        self.attrs["direction"] = 1  # y-direction
 
 
 # ======================= Vorticity budgets ==========================
@@ -711,8 +572,6 @@ class BudgetVorticity(NewBudget):
         Parameters
         ----------
         budget : budget.Budget object
-        bkdg_budget : budget.Budget object
-            Budget object for the background flow (precursor sim.)
         base_agg : int
         Ro : float
             Rossby number, defined U/(\Omega L)
@@ -809,3 +668,55 @@ class BudgetVorticity_z(BudgetVorticity):
         """
         super().__init__(*args, **kwargs)
         self.attrs["direction"] = 2  # z-direction
+
+
+# ====================== MKE Budget ========================
+
+
+class BudgetMKE(NewBudget): 
+    """
+    MKE budget, RANS formulation
+    """
+
+    __slots__ = ()
+
+    req_keys = [
+        "ubar", "vbar", "wbar", "pbar", "Tbar", 
+        "uu", "vv", "ww", "uv", "uw", "vw", 
+        "tau11", "tau22", "tau33", "tau12", "tau13", "tau23"
+    ]
+    opt_keys = ["xAD", "yAD"]
+
+    def __init__(self, budget, base_agg=0, Fr=None, theta0=None):
+        """
+        Initialize non-dimensional MKE budget terms.
+
+        Parameters
+        ----------
+        budget : budget.Budget object
+        base_agg : int
+        Ro : float
+            Rossby number, defined U/(\Omega L)
+        lat : float
+            Latitude, in degrees
+        fplane : bool
+            Use f-plane approx. Default True
+        Fr : float
+            Froude number, defined U/\sqrt{g L}
+        theta0 : float
+            Reference potential temperature (K)
+        """
+        super().__init__(budget, base_agg)
+        self.attrs["Fr"] = Fr
+        self.attrs["theta0"] = theta0
+
+    def _compute_budget(self):
+        """
+        Computes MKE budgets
+        """
+        self.base_terms = fluids.compute_mke_budget(
+            self.budget,
+            Fr=self.Fr,
+            theta0=self.theta0,
+        )
+        fluids.compute_residual(self.base_terms, in_place=True)

@@ -30,6 +30,9 @@ class Budget(GridDataset):
         "vorticity_x",
         "vorticity_y",
         "vorticity_z",
+        "deficit_x",
+        "deficit_y",
+        "mke",
     )
 
     def __init__(self, src):
@@ -48,13 +51,14 @@ class Budget(GridDataset):
             super().__init__(src.budget)
             self.src = src
             self.attrs["Ro"] = src.Ro
-            self.attrs["lat"] = src.lat
+            self.attrs["lat"] = src.lat  # latitude, in degrees
             self.attrs["galpha"] = src.galpha
             self.attrs["Fr"] = src.Fr
             self.attrs["is_stratified"] = (
                 key_search_r(src.input_nml, "isstratified") or False
             )
             self.attrs["theta0"] = key_search_r(src.input_nml, "tref")
+            self.attrs["galpha"] = key_search_r(src.input_nml, "galpha")
             self.full_arrays = src.budget  # keep "Full" BudgetIO domain size
 
         elif isinstance(src, Budget):
@@ -122,12 +126,9 @@ class Budget(GridDataset):
         lat=None,
         galpha=None,
     ):
-        if Ro is None:
-            Ro = self.Ro
-        if lat is None:
-            lat = self.lat
-        if galpha is None:
-            galpha = self.galpha
+        Ro = Ro or self.Ro
+        lat = lat or self.lat
+        galpha = galpha or self.galpha
         self.rans_x = RANS_x(
             self,
             base_agg=base_agg,
@@ -144,12 +145,9 @@ class Budget(GridDataset):
         lat=None,
         galpha=None,
     ):
-        if Ro is None:
-            Ro = self.Ro
-        if lat is None:
-            lat = self.lat
-        if galpha is None:
-            galpha = self.galpha
+        Ro = Ro or self.Ro
+        lat = lat or self.lat
+        galpha = galpha or self.galpha
         self.rans_y = RANS_y(
             self,
             base_agg=base_agg,
@@ -169,20 +167,12 @@ class Budget(GridDataset):
         theta0=None,
         is_stratified=None,
     ):
-        if Ro is None:
-            Ro = self.Ro
-        if Fr is None:
-            Fr = self.Fr
-        if lat is None:
-            lat = self.lat
-        if galpha is None:
-            galpha = self.galpha
-        if Fr is None:
-            Fr = self.Fr
-        if theta0 is None:
-            theta0 = self.theta0
-        if is_stratified is None:
-            is_stratified = self.is_stratified
+        Ro = Ro or self.Ro
+        Fr = Fr or self.Fr
+        lat = lat or self.lat
+        theta0 = theta0 or self.theta0
+        galpha = galpha or self.galpha
+        is_stratified = is_stratified or self.is_stratified
         self.rans_z = RANS_z(
             self,
             base_agg=base_agg,
@@ -203,12 +193,9 @@ class Budget(GridDataset):
         Fr=None,
         lat=None,
     ):
-        if Ro is None:
-            Ro = self.Ro
-        if Fr is None:
-            Fr = self.Fr
-        if lat is None:
-            lat = self.lat
+        Ro = Ro or self.Ro
+        Fr = Fr or self.Fr
+        lat = lat or self.lat
         self.deficit_x = BudgetDeficit_x(
             self,
             bkgd_budget,
@@ -220,12 +207,9 @@ class Budget(GridDataset):
         return self.deficit_x
 
     def init_deficit_y(self, bkgd_budget, base_agg=0, Ro=None, Fr=None, lat=None):
-        if Ro is None:
-            Ro = self.Ro
-        if Fr is None:
-            Fr = self.Fr
-        if lat is None:
-            lat = self.lat
+        Ro = Ro or self.Ro
+        Fr = Fr or self.Fr
+        lat = lat or self.lat
         self.deficit_y = BudgetDeficit_y(
             self,
             bkgd_budget,
@@ -235,56 +219,66 @@ class Budget(GridDataset):
             lat=lat,
         )
         return self.deficit_y
+    
+    def init_deficit_z(self, bkgd_budget, base_agg=0, Ro=None, Fr=None, lat=None):
+        raise NotImplementedError("z-deficit budget not implemented yet.")
+        # Ro = Ro or self.Ro
+        # Fr = Fr or self.Fr
+        # lat = lat or self.lat
+        # self.deficit_z = BudgetDeficit_z(
+        #     self,
+        #     bkgd_budget,
+        #     base_agg=base_agg,
+        #     Ro=Ro,
+        #     Fr=Fr,
+        #     lat=lat,
+        # )
+        # return self.deficit_z
 
     def init_vorticity_x(
         self, base_agg=0, Ro=None, lat=None, fplane=True, Fr=None, theta0=None
     ):
-        if Ro is None:
-            Ro = self.Ro
-        if Fr is None:
-            Fr = self.Fr
-        if lat is None:
-            lat = self.lat
-        if theta0 is None and isinstance(self.src, BudgetIO):
-            theta0 = key_search_r(self.src.input_nml, "tref")
+        Ro = Ro or self.Ro
+        Fr = Fr or self.Fr
+        lat = lat or self.lat
+        theta0 = theta0 or self.theta0
         self.vorticity_x = BudgetVorticity_x(
             self, base_agg=base_agg, Ro=Ro, lat=lat, fplane=fplane, Fr=Fr, theta0=theta0
         )
         return self.vorticity_x
 
-
     def init_vorticity_y(
         self, base_agg=0, Ro=None, lat=None, fplane=True, Fr=None, theta0=None
     ):
-        if Ro is None:
-            Ro = self.Ro
-        if Fr is None:
-            Fr = self.Fr
-        if lat is None:
-            lat = self.lat
-        if theta0 is None and isinstance(self.src, BudgetIO):
-            theta0 = key_search_r(self.src.input_nml, "tref")
+        Ro = Ro or self.Ro
+        Fr = Fr or self.Fr
+        lat = lat or self.lat
+        theta0 = theta0 or self.theta0
         self.vorticity_y = BudgetVorticity_y(
             self, base_agg=base_agg, Ro=Ro, lat=lat, fplane=fplane, Fr=Fr, theta0=theta0
         )
         return self.vorticity_y
 
-
     def init_vorticity_z(
         self, base_agg=0, Ro=None, lat=None, fplane=True, Fr=None, theta0=None
     ):
-        if Ro is None:
-            Ro = self.Ro
-        if Fr is None:
-            Fr = self.Fr
-        if lat is None:
-            lat = self.lat
-        if theta0 is None and isinstance(self.src, BudgetIO):
-            theta0 = key_search_r(self.src.input_nml, "tref")
+        Ro = Ro or self.Ro
+        Fr = Fr or self.Fr
+        lat = lat or self.lat
+        theta0 = theta0 or self.theta0
         self.vorticity_z = BudgetVorticity_z(
             self, base_agg=base_agg, Ro=Ro, lat=lat, fplane=fplane, Fr=Fr, theta0=theta0
         )
         return self.vorticity_z
+
+    def init_mke(self, base_agg=0, Fr=None, theta0=None):
+        """
+        Initialize MKE budgets
+        """
+        Fr = Fr or self.Fr
+        theta0 = theta0 or self.theta0
+        self.mke = BudgetMKE(self, base_agg=base_agg, Fr=Fr, theta0=theta0)
+        return self.mke
 
 
 if __name__ == "__main__":

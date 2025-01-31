@@ -9,7 +9,7 @@ import numpy as np
 import xarray as xr
 
 from . import math_utils as math
-from ..gridslice import GridDataset, Slice, SliceData
+from ..gridslice import GridDataset, Slice
 
 
 # some helpful key pairings:
@@ -65,6 +65,59 @@ def compute_vorticity(ds, uvw_keys=None, in_place=False):
         ds["w_i"] = xr.DataArray(w_i, dims=("x", "y", "z", "i"))
     else:
         return xr.DataArray(w_i, dims=("x", "y", "z", "i"))
+
+
+
+def compute_delta_field(
+    primary, precursor, budget_terms=None, avg_xy=True, in_place=True
+):
+    """
+    Computes deficit fields between primary and precursor simulations, e.g.:
+        \Delta u = u_primary - u_precursor
+
+    This definition follows the double decomposition in Martinez-Tossas, et al. (2021).
+
+    Parameters
+    ----------
+    primary : BudgetIO
+        Primary simulation budget object
+    precursor : BudgetIO
+        Precursor simulation budget object
+    budget_terms : list, optional
+        Budget terms to compute deficits.
+        Default is all shared keys between primary and precursor
+    avg_xy : bool, optional
+        Averages precursor terms horizontally if True. Default True
+
+    Returns
+    -------
+    field : dict
+        Deficit fields, either in-place if in_place=True, or
+
+    """
+
+    if budget_terms is None:
+        budget_terms = set(primary.keys()) & set(precursor.keys())
+
+    # background fields
+    if avg_xy:
+        tmp = {key: np.mean(precursor[key], (0, 1)) for key in budget_terms}
+    else:
+        tmp = precursor
+
+    if in_place:
+        field = primary
+    else:
+        field = {}
+
+    # for each key, compute primary - precursor:
+    for key in budget_terms:
+        dkey = key + "_deficit"
+        if dkey in field.keys():
+            continue  # skip repeat computations
+        field[dkey] = primary[key] - tmp[key]
+
+    return field
 
 
 # ================ BUDGET COMPUTATIONS ================
@@ -151,15 +204,109 @@ def compute_RANS(
     # hotfix - cast to xarray 
     ret_ds = GridDataset(coords=ds.coords).expand_dims(j=(0,1,2))
     for key, val in ret.items(): 
-        if val.ndim == 3: 
-            ret_ds[key] = xr.DataArray(val, dims=("x", "y", "z"))
-        elif val.ndim == 4: 
-            ret_ds[key] = xr.DataArray(val, dims=("x", "y", "z", "j"))
-    
-    # compute residual
-    tmp = math.new_aggregation(ret_ds, base_agg=0)
-    ret_ds["residual"] = sum(ret_ds[key] for key in tmp)
+        dims = ("x", "y", "z", "j")
+        ret_ds[key] = xr.DataArray(val, dims=dims[:val.ndim])
 
+    return ret_ds
+
+
+def deficit_budget(ds_full, ds_bkgd, direction, Ro=None, lat=None, fplane=True, avg_xy=True):
+    """
+    Computes the streamwise momentum deficit budget
+
+    NOTE: This code was written before the migration to xarray. It
+    would be better to use xarray.Dataset and xarray.DataArray objects
+    for all computations. #TODO
+
+    Parameters
+    ----------
+    full : dict
+        Dictionary of full velocity fields
+    bkgd : dict
+        Dictionary of background fields
+    direction : int
+        Direction to compute budgets (0 -> x, 1 -> y, 2 -> z)
+    Ro : float, optional
+        Rossby number. Default None (ignores Coriolis terms)
+    lat : float, optional
+        Latitude in degrees. Default None.
+    fplane : bool, optional
+        Use f-plane approximation. Default True.
+    avg_xy : bool, optional
+        xy-averages precursor fields if True. Default True. 
+
+    Returns
+    -------
+    xr.Dataset
+        Dataset of of deficit budget fields: 
+        - adv: Advection of mean deficit by full flow (negative, moved to RHS)
+        - prss: Deficit pressure gradient
+        - rsfull: Full flow Reynolds stresses
+        - rsdeficit: Deficit flow Reynolds stresses
+        - sgs: Subgrid stress
+        - cor: Coriolis
+        - adm: Actuator disk sink
+        - wakeadv: Wake advecting the mean flow
+    """
+
+    i = direction
+    if i == 2:
+        raise NotImplementedError("TODO: Delta_w deficit budgets")
+
+    ret = dict()
+    dims = ds_full.grid.shape
+    dxi = ds_full.grid.dxi
+
+    # compute deficit fields:
+    compute_delta_field(ds_full, ds_bkgd, avg_xy=avg_xy, in_place=True)
+
+    # construct tensors
+    deltau_j = math.assemble_tensor_1d(
+        ds_full, ["ubar_deficit", "vbar_deficit", "wbar_deficit"]
+    )
+    u_j = math.assemble_tensor_1d(ds_full, ["ubar", "vbar", "wbar"])  # full field
+    U_j = math.assemble_tensor_1d(ds_bkgd, ["ubar", "vbar", "wbar"])  # bkgd field
+    uu_full_ij = math.assemble_tensor_1d(ds_full, rs_keys[i])
+    uu_bkgd_ij = math.assemble_tensor_1d(ds_bkgd, rs_keys[i])
+    tau_full_ij = math.assemble_tensor_1d(ds_full, tau_keys[i])
+    tau_bkgd_ij = math.assemble_tensor_1d(ds_bkgd, tau_keys[i])
+
+    # numerics:
+    dduidxj = math.gradient(deltau_j[..., i], dxi)  # gradient of velocity deficit field
+    dUidxj = math.gradient(U_j[..., i], dxi)  # gradient of background velocity field
+    dpdxi = math.gradient(ds_full["pbar_deficit"], dxi, axis=i)
+    duiujdxj_full = math.div(uu_full_ij, dxi)
+    duiujdxj_bkgd = math.div(uu_bkgd_ij, dxi)
+    sgs_ij = math.div(
+        tau_full_ij - tau_bkgd_ij, dxi
+    )  # could split this into components as well
+
+    # compute momentum deficit terms
+    ret["adv"] = -u_j * dduidxj  # deficit advection
+    ret["prss"] = -dpdxi
+    ret["sgs"] = -sgs_ij
+    ret["rsfull"] = -duiujdxj_full
+    ret["rsbkgd"] = duiujdxj_bkgd
+
+    try:
+        ret["adm"] = ds_full[AD_keys[i]]
+    except KeyError:
+        pass
+
+    if fplane:
+        ret["cor"] = (
+            2 * math.e_ijk(i, 1 - i, 2) * np.sin(lat) / Ro * deltau_j[..., 1 - i]
+        )
+    else:
+        raise NotImplementedError("TODO: Deficit budgets full Coriolis")
+    ret["wakeadv"] = -deltau_j * dUidxj
+
+    # hotfix - cast to xarray 
+    ret_ds = GridDataset(coords=ds_full.coords).expand_dims(j=(0,1,2))
+    for key, val in ret.items(): 
+        dims = ("x", "y", "z", "j")
+        ret_ds[key] = xr.DataArray(val, dims=dims[:val.ndim])
+    
     return ret_ds
 
 
@@ -200,8 +347,15 @@ def compute_vort_budget(
 
     Returns
     -------
-    dict
-        Vorticity budget terms
+    xr.Dataset
+        Vorticity budget terms, including: 
+        - adv: Advection due to mean flow (negative, moved to RHS)
+        - str: Vortex stretching 
+        - buoy: Buoyancy torque 
+        - sgs: Subgrid stress torque 
+        - rs: Reynolds stress torque 
+        - cor: Coriolis/planetary vorticity
+        - adm: Turbine forcing 
     """
 
     dims = ds.grid.shape
@@ -306,10 +460,68 @@ def compute_vort_budget(
         dims = ["x", "y", "z", "j", "k", "m"][:val.ndim]
         ret_ds[key] = xr.DataArray(val, dims=dims)
 
-    # aggregate down
+    # aggregate down to more manageable dimensions
     math.new_aggregation(ret_ds, base_agg=aggregate, in_place=True)
 
     return ret_ds
+
+
+def compute_mke_budget(ds, Fr=None, theta0=300., aggregate=0): 
+    """
+    Computes the mean kinetic energy budget.
+
+    This is the first budget explicitly written for xarray Datasets. 
+
+    Parameters
+    ----------
+    ds : xr.Dataset
+        Dataset with time-averaged fields
+    Fr : float, optional
+        Froude number, defined Fr = U/sqrt(gL). If None, 
+        no buoyancy term is computed. Default None. 
+    theta0 : float, optional
+        Reference potential temperature. Default 300.0
+    aggregate: int, optional
+        Aggregation level for the output. Default 0. (sum over all i, j)
+
+    Returns
+    -------
+    xr.Dataset
+        Dataset with budget terms: 
+        - adv: MKE advection from mean flow (negative, moved to RHS)
+        - prss: Pressure work term
+        - buoy: Buoyancy term (if Fr is not None)
+        - shear: Shear production term
+        - diss: Dissipation term
+        - adm: Turbine forcing term
+    """
+
+    u_i = math.assemble_xr_1d(ds, ["ubar", "vbar", "wbar"])
+    uiuj = math.assemble_xr_nd(ds, rs_keys, dim=("i", "j"))
+    tau_ij = math.assemble_xr_nd(ds, tau_keys, dim=("i", "j"))
+
+    # let's also add turbine forcing
+    xAD = ds["xAD"] if "xAD" in ds else xr.zeros_like(ds['ubar'])
+    yAD = ds["yAD"] if "yAD" in ds else xr.zeros_like(ds['ubar'])
+    zAD = ds["zAD"] if "zAD" in ds else xr.zeros_like(ds['ubar'])
+    AD = xr.concat([xAD, yAD, zAD], dim="i")  # this is the actual forcing
+    compute_AD = np.any(AD)  # compute ADM component - boolean
+
+    # Compute budget terms now: 
+    mke = 0.5 * u_i.sum("i")**2
+    ret = GridDataset(coords=ds.coords).expand_dims(i=(0,1,2), j=(0,1,2)).transpose("x", "y", "z", "i", "j")
+    ret['adv'] = -u_i * math.xr_gradient(mke, dim=("x", "y", "z"), concat_along="i")
+    ret['prss'] = -u_i * math.xr_gradient(ds["pbar"], dim=("x", "y", "z"), concat_along="i")
+    if Fr is not None and theta0 is not None: 
+        ret['buoy'] = u_i.sel(i=0) * math.xr_gradient(ds["Tbar"], dim=("x", "y", "z"), concat_along="i") / (theta0 * Fr**2)
+    ret['shear'] = -u_i * math.xr_div(uiuj, dim="j", sum=False)
+    ret['diss'] = -u_i * math.xr_div(tau_ij, dim="j", sum=False)
+    if compute_AD: 
+        ret['adm'] = u_i * AD
+
+    # aggregate down
+    axes_to_sum = ["i", "j"][aggregate:]
+    return ret.transpose(..., *axes_to_sum).sum(axes_to_sum)
 
 
 def compute_residual(ds_budget, in_place=False): 
