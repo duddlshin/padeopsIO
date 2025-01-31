@@ -6,6 +6,7 @@ Kirby Heck
 """
 
 import numpy as np
+import xarray as xr
 from ..gridslice import GridDataset
 
 
@@ -223,6 +224,153 @@ def div(f, dxi, axis=-1, sum=False, **kwargs):
         return np.sum(res, axis=axis)
     else:
         return res
+
+
+# ================== XARRAY FUNCTIONS ========================
+
+def assemble_xr_1d(ds, keys, dim="i", coords=None, rename=None):
+    """Assemble 1d xarray tensor by expanding dimensions"""
+    if coords is None: 
+        coords = {dim: range(len(keys))}
+    result = xr.concat([ds[key] for key in keys], dim=dim)
+    result.coords[dim] = coords[dim]
+    return result.rename(rename)
+
+
+def assemble_xr_nd(ds, nested_keys, dim=("i", "j"), coords=None, rename=None):
+    """Assemble nd xarray tensor by recursively expanding dimensions"""
+    try:
+        newshape = np.array(nested_keys)
+    except ValueError as e:
+        raise e
+
+    if isinstance(dim, str):
+        dim = (dim,)
+
+    if newshape.ndim != len(dim):
+        raise ValueError(
+            "Dimension mismatch: cannot reshape"
+            f"the array into the requested {newshape.ndim}"
+            f"dimensions with {len(dim)} directions given."
+        )
+
+    def _assemble(keys, level, coords):
+        """Define recursive function call"""
+        if isinstance(keys[0], str):
+            # base level of recursion
+            return assemble_xr_1d(ds, keys, dim=dim[level], coords=coords)
+        else:
+            # top level recursion
+            result =  xr.concat(
+                [_assemble(key, level - 1, coords) for key in keys], dim=dim[level]
+            )
+            if coords is None: 
+                coords = {dim[level]: range(len(keys))}
+            result.coords[dim[level]] = coords[dim[level]]
+            return result
+
+    return _assemble(nested_keys, 0, coords).rename(rename)
+
+
+def xr_gradient(data, dim, concat_along="i"):
+    """
+    Computes the gradient of an xarray.DataArray along specified dimensions.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        Input data.
+    dim : tuple
+        Dimensions along which to compute the gradient.
+
+    Returns
+    -------
+    gradient : xarray.DataArray
+        Gradient of the input data.
+    """
+    gradient = []
+    if isinstance(dim, str): 
+        dim = (dim, )
+    
+    for _dim in dim:
+        grad_dim = data.differentiate(_dim)
+        gradient.append(grad_dim)
+    return xr.concat(
+        gradient, dim=concat_along
+    )  # Stack gradients along a new dimension
+
+
+
+def xr_div(ds, dim, mapping=None, sum=False, **kwargs):
+    """
+    Computes the 3D divergence of vector or tensor field f: dfi/dxi
+
+    Parameters
+    ----------
+    f : xr.Dataset
+        Vector or tensor field
+    dim : str
+        Dimension to compute divergence
+    mapping : dict, optional
+        Mapping of indices to dimensions along dimension `dim`. 
+        Default is {0: "x", 1: "y", 2: "z"}
+    sum : bool, optional
+        if True, performs implicit summation over repeated indices.
+        Default False
+
+    Returns
+    -------
+    dfi/dxi : f.shape array (if sum=True) OR drops the `axis`
+        axis if sum=False
+    """
+
+    ret = GridDataset(coords=ds.coords)
+    mapping = {0: "x", 1: "y", 2: "z"}
+
+    ret = []
+    for i in ds.coords[dim]: 
+        axis = mapping[int(i)]
+        ret.append(ds.sel({dim: i}).differentiate(axis))
+
+    # rearrange to DataArray
+    div = xr.concat(ret, dim)
+
+    if sum: 
+        return div.sum(dim)
+    else: 
+        return div
+
+
+def xr_permutation_tensor(dims=None, coords=None):
+    """
+    Returns the Levi-Civita symbol for 3D space.
+
+    Parameters
+    ----------
+    dims : list of str, optional
+        Default is ["i", "j", "k"]
+    coords : dict of coordinate values, optional.
+        If `None`, fills in [0, 1, 2] for all axes.
+
+    Returns
+    -------
+    E_ijk : xr.DataArray
+        3x3x3 Levi-Civita tensor.
+    """
+    E_ijk = np.zeros((3, 3, 3))
+    E_ijk[0, 1, 2] = E_ijk[1, 2, 0] = E_ijk[2, 0, 1] = 1
+    E_ijk[0, 2, 1] = E_ijk[2, 1, 0] = E_ijk[1, 0, 2] = -1
+
+    dims = dims or ["i", "j", "k"]
+    coords = coords or {dim: [0, 1, 2] for dim in dims}
+
+    ret = xr.DataArray(
+        E_ijk,
+        dims=dims,
+        coords=coords,
+    )
+
+    return ret
 
 
 if __name__ == "__main__":
