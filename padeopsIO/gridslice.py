@@ -234,9 +234,10 @@ class Slicer:
 
         if isinstance(self._obj, xr.DataArray):
             return self._obj.isel(**valid_indexers).sel(**extra_kwargs)
-        else:
-            keys = keys or self._obj.data_vars  # OK even for empty Dataset
+        elif keys:
             return self._obj.isel(**valid_indexers)[keys].sel(**extra_kwargs)
+        else: 
+            return self._obj.isel(**valid_indexers).sel(**extra_kwargs)
 
 
 @xr.register_dataset_accessor("imshow")

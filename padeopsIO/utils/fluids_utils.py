@@ -72,7 +72,7 @@ def compute_vorticity(ds, uvw_keys=None, in_place=False):
 
 def compute_RANS(
     ds,
-    i,
+    direction,
     Ro=None,
     lat=None,
     galpha=0,
@@ -91,7 +91,7 @@ def compute_RANS(
     Parameters
     ----------
     ds : xr.Dataset
-    i : int
+    direction : int
         Direction, either 0, 1, 2 (x, y, z, respectively)
     Ro : float
         Rossby number, defined Ro = G/(\Omega L)
@@ -111,6 +111,7 @@ def compute_RANS(
 
     dims = ds.grid.shape
     dxi = ds.grid.dxi
+    i = direction
 
     # assemble tensors
     u_j = math.assemble_tensor_1d(ds, ["ubar", "vbar", "wbar"])
@@ -173,17 +174,17 @@ def compute_vort_budget(
     aggregate=1, 
 ):
     """
-    Computes the offline vorticity budget in three component directions.
+    Computes the offline vorticity budget in the requested component direction.
 
-    All terms are nd arrays [x,y,z,i, ...] for the i-direction of vorticity.
+    Terms are nd arrays [x, y, z, j, k, m] up to the level of aggregation. 
+    For example, the default (aggregate=1) will return [x, y, z, j] only. 
 
     Parameters
     ----------
     field_dict : xr.Dataset
         Dataset expecting velocity, temperature, subgrid stresses, and reynolds stresses
-    direction : int or list
-        Direction (0, 1, 2), or a tuple/list of directions
-        (e.g., i=(0, 1)) computes x, y vorticity
+    direction : int 
+        Direction to compute the vorticity budget
     Ro : float
         Rossby number as defined in LES
     lat : float
@@ -203,22 +204,20 @@ def compute_vort_budget(
         Vorticity budget terms
     """
 
-    # if der is None:
-    #     der = DerOps(dx=dx)
     dims = ds.grid.shape
     dxi = ds.grid.dxi
-    dirs = np.unique(direction)  # np.unique returns an at least 1D array
+    ii = int(direction)  
 
     # allocate memory for all the tensors
-    adv_ij = np.zeros(dims + (len(dirs), 3))
-    str_ij = np.zeros(dims + (len(dirs), 3))
-    buoy_ij = np.zeros(dims + (len(dirs), 3))
-    sgs_ijkm = np.zeros(dims + (len(dirs), 3, 3, 3))  # 7D, [x, y, z, i, j, k, m]
+    adv_ij = np.zeros(dims + (3,))
+    str_ij = np.zeros(dims + (3,))
+    buoy_ij = np.zeros(dims + (3,))
+    sgs_ijkm = np.zeros(dims + (3, 3, 3))  # 6D, [x, y, z, j, k, m]
+    rs_ijkm = np.zeros(dims + (3, 3, 3))  # also 6D
     if fplane:
-        cor_i = np.zeros(dims + (len(dirs),))
+        cor_i = np.zeros(dims)
     else:
-        cor_i = np.zeros(dims + (len(dirs), 3))
-    rs_ijkm = np.zeros(dims + (len(dirs), 3, 3, 3))  # also 7D
+        cor_i = np.zeros(dims + (3,))
 
     # check all required tensors exist:  (may throw KeyError)
     u_i = math.assemble_tensor_1d(ds, keys=["ubar", "vbar", "wbar"])
@@ -228,66 +227,71 @@ def compute_vort_budget(
     uiuj = math.assemble_tensor_nd(ds, rs_keys)
     tau_ij = math.assemble_tensor_nd(ds, tau_keys)
     Tbar = ds["Tbar"]
+    # let's also add turbine forcing
+    xAD = ds["xAD"] if "xAD" in ds else np.zeros(dims)
+    yAD = ds["yAD"] if "yAD" in ds else np.zeros(dims)
+    zAD = ds["zAD"] if "zAD" in ds else np.zeros(dims)
+    AD = np.stack([xAD, yAD, zAD], axis=-1)  # this is the actual forcing
+    AD_ijk = np.zeros(dims + (3,))           # this is the vorticity budget term
+    compute_AD = np.any(AD)  # compute ADM component - boolean
 
-    # compute tensor quantities:
-    for ii in dirs:
-        # compute coriolis
-        if fplane:
-            cor_i[:, :, :, ii] = (
-                2 / Ro * np.sin(lat) * math.gradient(u_i[:, :, :, ii], dxi, axis=2)
-            )
-        else:
-            raise NotImplementedError(
-                "compute_vort_budget(): fplane = False not implemeneted"
-            )
+    # compute coriolis
+    if fplane:
+        cor_i = 2 / Ro * np.sin(lat) * math.gradient(u_i[:, :, :, ii], dxi, axis=2)
+    else:
+        raise NotImplementedError(
+            "compute_vort_budget(): fplane = False not implemented"
+        )
 
-        for jj in range(3):
-            # advection (on RHS, flipped sign)
-            adv_ij[:, :, :, ii, jj] = -u_i[:, :, :, jj] * math.gradient(
-                w_i[:, :, :, ii], dxi, axis=jj
-            )
+    # Compute remaining tensor quantities
+    for jj in range(3):
+        # advection (on RHS, flipped sign)
+        adv_ij[..., jj] = -u_i[..., jj] * math.gradient(
+            w_i[..., ii], dxi, axis=jj
+        )
 
-            # vortex stretching
-            str_ij[:, :, :, ii, jj] = w_i[:, :, :, jj] * math.gradient(
-                u_i[:, :, :, ii], dxi, axis=jj
-            )
+        # vortex stretching
+        str_ij[..., jj] = w_i[:, :, :, jj] * math.gradient(
+            u_i[..., ii], dxi, axis=jj
+        )
 
-            # buoyancy torque
-            if theta0 is not None:
-                eijk = math.e_ijk(ii, jj, 2)  # buoyancy term has k=3
+        # buoyancy torque
+        if theta0 is not None:
+            eijk = math.e_ijk(ii, jj, 2)  # buoyancy term has k=3
+            if eijk == 0:
+                buoy_ij[..., jj] = 0  # save compute time by skipping these
+            else:
+                buoy_ij[..., jj] = (
+                    eijk * math.gradient(Tbar, dxi, axis=jj) / (Fr**2 * theta0)
+                )
+
+        for kk in range(3):
+            eijk = math.e_ijk(ii, jj, kk)
+            # nothing is ijk at the moment, Coriolis w/o trad. approx. is, however
+
+            # so is turbine forcing: 
+            if compute_AD and eijk != 0: 
+                print("DEBUG: ", eijk, (ii, jj, kk))
+                AD_ijk = eijk * math.gradient(AD[..., kk], dxi, axis=jj)
+                print("DEBUG VALUE: ", np.max(abs(eijk * math.gradient(AD[..., kk], dxi, axis=jj))))
+
+            for mm in range(3):
+                # compute permutation operator
+
                 if eijk == 0:
-                    buoy_ij[:, :, :, ii, jj] = 0  # save compute time by skipping these
+                    sgs_ijkm[..., jj, kk, mm] = 0
+                    rs_ijkm[..., jj, kk, mm] = 0
                 else:
-                    buoy_ij[:, :, :, ii, jj] = (
-                        eijk * math.gradient(Tbar, axis=jj) / (Fr**2 * theta0),
+                    sgs_ijkm[..., jj, kk, mm] = eijk * math.gradient(
+                        math.gradient(-tau_ij[..., kk, mm], dxi, axis=mm),
                         dxi,
+                        axis=jj,
                     )
-
-            for kk in range(3):
-                # nothing is ijk at the moment, Coriolis w/o trad. approx. is, however
-
-                for mm in range(3):
-                    # compute permutation operator
-                    eijk = math.e_ijk(ii, jj, kk)
-
-                    if eijk == 0:
-                        sgs_ijkm[:, :, :, ii, jj, kk, mm] = 0
-                        rs_ijkm[:, :, :, ii, jj, kk, mm] = 0
-                    else:
-                        sgs_ijkm[:, :, :, ii, jj, kk, mm] = eijk * math.gradient(
-                            math.gradient(
-                                -tau_ij[:, :, :, kk, mm],
-                                dxi,
-                                axis=mm,
-                            ),
-                            dxi,
-                            axis=jj,
-                        )
-                        rs_ijkm[:, :, :, ii, jj, kk, mm] = eijk * math.gradient(
-                            math.gradient(-uiuj[:, :, :, kk, mm], dxi, axis=mm),
-                            dxi,
-                            axis=jj,
-                        )
+                    rs_ijkm[..., jj, kk, mm] = eijk * math.gradient(
+                        math.gradient(-uiuj[..., kk, mm], dxi, axis=mm),
+                        dxi,
+                        axis=jj,
+                    )
 
     # hotfix - cast to xarray 
     ret = {
@@ -296,19 +300,17 @@ def compute_vort_budget(
         "buoy": buoy_ij,
         "sgs": sgs_ijkm,
         "cor": cor_i,
+        "adm": AD_ijk,
         "rs": rs_ijkm,
     }
     ret_ds = GridDataset(coords=ds.coords).expand_dims(j=(0,1,2), k=(0,1,2), m=(0,1,2))
     for key, val in ret.items(): 
-        dims = ["x", "y", "z", "i", "j", "k", "m"][:val.ndim]
+        dims = ["x", "y", "z", "j", "k", "m"][:val.ndim]
         ret_ds[key] = xr.DataArray(val, dims=dims)
 
     # aggregate down
-    print("DEBUG: Aggregating down vorticity budget")
     math.new_aggregation(ret_ds, base_agg=aggregate, in_place=True)
-    if len(dirs) == 1:
-        ret_ds = ret_ds.sel(i=dirs[0])
-    print("Done with voricity tubdget")
+
     return ret_ds
 
 
@@ -328,7 +330,7 @@ def compute_residual(ds_budget, in_place=False):
     """
     # compute residual
     tmp = math.new_aggregation(ds_budget, base_agg=0)
-    residual = sum(ds_budget[key] for key in tmp)
+    residual = sum(tmp[key] for key in tmp)
 
     if in_place: 
         ds_budget["residual"] = residual
