@@ -271,9 +271,7 @@ def compute_vort_budget(
 
             # so is turbine forcing: 
             if compute_AD and eijk != 0: 
-                print("DEBUG: ", eijk, (ii, jj, kk))
                 AD_ijk = eijk * math.gradient(AD[..., kk], dxi, axis=jj)
-                print("DEBUG VALUE: ", np.max(abs(eijk * math.gradient(AD[..., kk], dxi, axis=jj))))
 
             for mm in range(3):
                 # compute permutation operator
