@@ -32,7 +32,7 @@ def get_logfiles(path, search_str="*.o[0-9]*", id=-1):
 
     if len(logfiles) == 0:
         warnings.warn("No logfiles found, returning")
-        return None
+        return []
     elif id is None:
         return logfiles
     else:
@@ -113,6 +113,32 @@ def get_phihub(self, z_hub=0, return_degrees=False, use_fields=False, **slice_kw
         return np.interp(z_hub, self.grid.z, phi)
 
 
+def get_tidx_pairs(self, budget=False):
+    """
+    Returns a dictionary matching time keys [TIDX in PadeOps] to non-dimensional times.
+
+    Arguments
+    ----------
+    self : BudgetIO object
+    budget : bool
+        If true, matches budget times from BudgetIO.unique_budget_tidx(). Default false.
+
+    Returns
+    -------
+    (list, list)
+        matching (TIDX, time) tuple lists
+    """
+    if budget:
+        budget_tidx = self.unique_budget_tidx(return_last=False)
+        times, tidx = get_time_ax(self, return_tidx=True)
+        return budget_tidx, np.interp(budget_tidx, tidx, times)
+
+    else:
+        tidx = self.unique_tidx()
+        times = self.unique_times()
+        return tidx, times
+
+
 def get_timekey(self, budget=False):
     """
     Returns a dictionary matching time keys [TIDX in PadeOps] to non-dimensional times.
@@ -128,16 +154,9 @@ def get_timekey(self, budget=False):
     dict
         matching {TIDX: time} dictionary
     """
-    tidxs = self.unique_tidx()
-    times = self.unique_times()
-
-    timekey = {tidx: time for tidx, time in zip(tidxs, times)}
-
-    if budget:
-        keys = self.unique_budget_tidx(return_last=False)
-        return {key: timekey[key] for key in keys}
-    else:
-        return timekey
+    tidx, times = get_tidx_pairs(self, budget=budget)
+    # return dict(zip(tidx, times))  # this returns a bunch of 0D arrays... numpy 2.0 issues?
+    return {int(tid): float(time) for tid, time in zip(tidx, times)}
 
 
 def get_time_ax(self, return_tidx=False, missing_init_ok=True):

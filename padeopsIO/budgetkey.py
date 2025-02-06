@@ -144,7 +144,7 @@ def key_labels(u="U", l="D"):
         "vv": "$\\overline{v'v'}/U^2$",
         "vw": "$\\overline{v'w'}/U^2$",
         "ww": "$\\overline{w'w'}/U^2$",
-        "pbar": "$\\bar{p}/(\\frac{1}{2}U^2)$",
+        "pbar": "$\\bar{p}/U^2$",
         "tau11": "$\\tau_{11}$",
         "tau12": "$\\tau_{12}$",
         "tau13": "$\\tau_{13}$",
