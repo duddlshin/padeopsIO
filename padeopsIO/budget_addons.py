@@ -11,9 +11,7 @@ from abc import ABC
 
 from .utils import math_utils as math
 from .utils import fluids_utils as fluids
-from .gridslice import GridDataset, Slice
-
-from .utils.fluids_utils import rs_keys, tau_keys, AD_keys
+from .gridslice import GridDataset
 
 
 # =============== NewBudget interface ================
