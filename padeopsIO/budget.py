@@ -20,6 +20,7 @@ class Budget(GridDataset):
 
     __slots__ = (
         "src",
+        "budget",
         "full_arrays",
         "rans_x",
         "rans_y",
@@ -50,6 +51,7 @@ class Budget(GridDataset):
         if isinstance(src, BudgetIO):
             super().__init__(src.budget)
             self.src = src
+            self.budget = src.budget  # for convenience
             self.attrs["Ro"] = src.Ro
             self.attrs["lat"] = src.lat  # latitude, in degrees
             self.attrs["galpha"] = src.galpha

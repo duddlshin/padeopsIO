@@ -44,10 +44,13 @@ class NewBudget(GridDataset, ABC):
             base_agg  # base level of aggregation, 0 is the most aggregated
         )
 
-    def clear(self):
+    def clear(self, keys=None):
         """Clear all terms"""
-        for var in list(self.data_vars.keys()):
-            del self[var]  # wipes these keys
+        for var in list(keys or self.data_vars.keys()):
+            try: 
+                del self[var]  # delete these keys
+            except KeyError as e: 
+                pass  # skip these
 
     def pop(self, key):
         """Pop a key"""

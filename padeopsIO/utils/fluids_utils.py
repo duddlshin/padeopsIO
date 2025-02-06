@@ -9,7 +9,7 @@ import numpy as np
 import xarray as xr
 
 from . import math_utils as math
-from ..gridslice import GridDataset, Slice
+from ..gridslice import GridDataset
 
 
 # some helpful key pairings:
@@ -53,6 +53,7 @@ def compute_vorticity(ds, uvw_keys=None, in_place=False):
     u_i = math.assemble_tensor_1d(ds, uvw_keys or ["ubar", "vbar", "wbar"])
     dxi = ds.grid.dxi
 
+    # TODO: This can be made ~33% faster if we do not compute along i=j=k
     dukdxj = math.gradient(
         u_i, dxi, axis=(0, 1, 2), stack=-2
     )  # stack along -2 axis so indexing is x, y, z, j, k
@@ -64,7 +65,7 @@ def compute_vorticity(ds, uvw_keys=None, in_place=False):
     if in_place:
         ds["w_i"] = xr.DataArray(w_i, dims=("x", "y", "z", "i"))
     else:
-        return xr.DataArray(w_i, dims=("x", "y", "z", "i"))
+        return xr.DataArray(w_i, dims=("x", "y", "z", "i"), coords=ds.coords)
 
 
 
