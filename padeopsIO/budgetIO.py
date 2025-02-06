@@ -834,12 +834,14 @@ class BudgetIO:
 
         # parse tidx
         if tidx is None:
-            if time is not None: 
+            if time is not None:
                 tidx_all, times = self.get_tidx_pairs()
                 _id = np.argmin(np.abs(times - time))
                 tidx = tidx_all[_id]
-                self.printv(f"read_fields(): `time` = {time} passed in, found nearest time = {times[_id]}")
-            else: 
+                self.printv(
+                    f"read_fields(): `time` = {time} passed in, found nearest time = {times[_id]}"
+                )
+            else:
                 tidx = self.last_tidx
 
         else:  # find closest tidx
@@ -902,7 +904,11 @@ class BudgetIO:
         return loaded_keys
 
     def read_budgets(
-        self, budget_terms="default", overwrite=False, tidx=None, time=None, 
+        self,
+        budget_terms="default",
+        overwrite=False,
+        tidx=None,
+        time=None,
     ):
         """
         Accompanying method to write_budgets. Reads budgets saved as .npz files
@@ -932,11 +938,13 @@ class BudgetIO:
         # parse budget_terms with the key
         key_subset = self._parse_budget_terms(budget_terms)
 
-        if time is not None: 
+        if time is not None:
             tidx_all, times = self.get_tidx_pairs(budget=True)
             _id = np.argmin(np.abs(times - time))
             tidx = tidx_all[_id]
-            self.printv(f"read_fields(): `time` = {time} passed in, found nearest time = {times[_id]}")
+            self.printv(
+                f"read_fields(): `time` = {time} passed in, found nearest time = {times[_id]}"
+            )
 
         # Decide: overwrite existing budgets or not?
         if overwrite:
@@ -1182,7 +1190,7 @@ class BudgetIO:
         sl=None,
         keys=None,
         tidx=None,
-        time=None, 
+        time=None,
         xlim=None,
         ylim=None,
         zlim=None,
@@ -1239,7 +1247,9 @@ class BudgetIO:
 
         elif budget_terms is not None:
             # read budgets
-            self.read_budgets(budget_terms=budget_terms, tidx=tidx, time=time, overwrite=overwrite)
+            self.read_budgets(
+                budget_terms=budget_terms, tidx=tidx, time=time, overwrite=overwrite
+            )
             preslice = self.budget
             budget_terms = (
                 [budget_terms] if isinstance(budget_terms, str) else budget_terms
@@ -1390,8 +1400,11 @@ class BudgetIO:
         _slice_kwargs = dict(xlim=None, ylim=None, zlim=zlim)
         _slice_kwargs.update(slice_kwargs)
 
-        to_merge = list(filter(None, [
-            self.slice(budget_terms=budget_terms, **_slice_kwargs),
+        to_merge = list(
+            filter(
+                None,
+                [
+                    self.slice(budget_terms=budget_terms, **_slice_kwargs),
                     self.slice(field_terms=field_terms, **_slice_kwargs),
                 ],
             )

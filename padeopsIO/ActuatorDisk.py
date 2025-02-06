@@ -17,7 +17,8 @@ from scipy.optimize import minimize
 
 
 import warnings
-warnings.warn('wake_model_utils.py: This is being deprecated in a future release. ')
+
+warnings.warn("wake_model_utils.py: This is being deprecated in a future release. ")
 
 
 def calculate_induction_limited(Ctprime, yaw, Uamb=1):
@@ -38,9 +39,7 @@ def _calculate_induction(Ctprime, yaw, Uamb, a, u4, v4):
     """
     Subiteration of Eq. 2.15
     """
-    _a = 1 - np.sqrt(Uamb**2 - u4**2 - v4**2) / (
-        np.sqrt(Ctprime) * Uamb * np.cos(yaw)
-    )
+    _a = 1 - np.sqrt(Uamb**2 - u4**2 - v4**2) / (np.sqrt(Ctprime) * Uamb * np.cos(yaw))
 
     _u4 = Uamb * (1 - 0.5 * Ctprime * (1 - a) * np.cos(yaw) ** 2)
 
@@ -79,7 +78,7 @@ def calculate_induction(Ctprime, yaw, Uamb=1, eps=0.000001):
     return a, u4, v4
 
 
-def model_cp(ct, yaw): 
+def model_cp(ct, yaw):
     """
     ct -> C_T'
     yaw -> radians, CCW positive
@@ -89,15 +88,15 @@ def model_cp(ct, yaw):
     return cp
 
 
-def model_eta1(ct, yaw): 
+def model_eta1(ct, yaw):
     cp = model_cp(ct, yaw)
     return cp  # for leading turbine, eta = C_P
 
 
-def model_eta2(ct1, yaw1, sx, sy, ct2=2, yaw2=0, kw=0.07, sigma=0.25): 
+def model_eta2(ct1, yaw1, sx, sy, ct2=2, yaw2=0, kw=0.07, sigma=0.25):
     wake = MITWake(ct1, yaw1, kw=kw, sigma=sigma)
     REWS = wake.REWS(sx, sy)
-    return model_cp(ct2, yaw2)*REWS**3
+    return model_cp(ct2, yaw2) * REWS**3
 
 
 def two_turbine_Cp(x, T2_x, T2_y, kw=0.07, sigma=0.25, analytic=False):
@@ -112,7 +111,7 @@ def two_turbine_Cp(x, T2_x, T2_y, kw=0.07, sigma=0.25, analytic=False):
     else:
         REWS = wake.REWS(T2_x, T2_y, R=0.5)
 
-    Cp1 = model_cp(Ct1, yaw) 
+    Cp1 = model_cp(Ct1, yaw)
     Cp2 = model_cp(2, 0) * REWS**3
 
     Cp_total = (Cp1 + Cp2) / 2
@@ -125,20 +124,20 @@ def _setpoint_optimize(x, T2_x, T2_y, kw, sigma, analytic=False):
     Helper function to find_optimimal_setpoints()
     """
     Cp1, Cp2 = two_turbine_Cp(x, T2_x, T2_y, kw=kw, sigma=sigma, analytic=analytic)
-    return -(Cp1+Cp2) / 2
+    return -(Cp1 + Cp2) / 2
 
 
 def find_optimal_setpoints(T2_x, T2_y, kw=0.07, sigma=0.25, analytic=False):
     """
     Uses scipy.optimize.minimize to compute the maximum power of a two-turbine
-    array by varying C_T' and yaw of the leading turbine. 
-    
-    Downstream turbine C_T' and yaw are fixed at Betz-optimum. 
-    
+    array by varying C_T' and yaw of the leading turbine.
+
+    Downstream turbine C_T' and yaw are fixed at Betz-optimum.
+
     Returns
     -------
     Ctprime (float) : C_T' of the leading turbine
-    yaw (float) : in radians, leading turbine yaw misalignment 
+    yaw (float) : in radians, leading turbine yaw misalignment
     farm_efficiency (float) : combined efficiency eta_1+eta_2
     """
     res = minimize(
@@ -157,13 +156,12 @@ def find_optimal_setpoints(T2_x, T2_y, kw=0.07, sigma=0.25, analytic=False):
     return Ctprime, yaw, farm_efficiency
 
 
-
 class MITWake:
     def __init__(self, Ctprime, yaw, sigma=0.25, kw=0.07, phi_hub=0):
         """
         Ctprime -> C_T' modified thrust coefficeint
         yaw -> yaw (radians)
-        sigma -> sigma_0 initial wake constnat 
+        sigma -> sigma_0 initial wake constnat
         kw -> k_w wake spreading constant
         phi_hub -> Hub height wind direction, with respect to +x axis (radians)
         """
@@ -178,13 +176,12 @@ class MITWake:
         self.D = 1
         self.Uamb = 1
 
-        
-    def model_cp(self): 
+    def model_cp(self):
         """
         Computes power coefficient
         """
         return model_cp(self.Ctprime, self.yaw)
-    
+
     def _update_induction(self):
         """
         Calculate a, u4 and v4 for a given thrust and yaw.
@@ -227,7 +224,7 @@ class MITWake:
         _x = np.arange(0, xmax, dx)
         dv = self._dv(_x)
         v_bkgd = np.tan(self.phi_hub)
-        _yc = cumtrapz(v_bkgd-dv, dx=dx, initial=0)
+        _yc = cumtrapz(v_bkgd - dv, dx=dx, initial=0)
 
         return np.interp(x, _x, _yc)
 

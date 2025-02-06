@@ -15,6 +15,7 @@ from .gridslice import GridDataset
 
 # =============== NewBudget interface ================
 
+
 class NewBudget(GridDataset, ABC):
     """
     Informal interface for new budget classes to add (e.g. RANS).
@@ -44,9 +45,9 @@ class NewBudget(GridDataset, ABC):
     def clear(self, keys=None):
         """Clear all terms"""
         for var in list(keys or self.data_vars.keys()):
-            try: 
+            try:
                 del self[var]  # delete these keys
-            except KeyError as e: 
+            except KeyError as e:
                 pass  # skip these
 
     def pop(self, key):
@@ -179,7 +180,7 @@ class LESMomentum(NewBudget):
 
         # compute residual
         fluids.compute_residual(terms, in_place=True)
-        
+
         self.base_terms = terms
 
 
@@ -637,6 +638,7 @@ class BudgetVorticity_x(BudgetVorticity):
         super().__init__(*args, **kwargs)
         self.attrs["direction"] = 0  # x-direction
 
+
 class BudgetVorticity_y(BudgetVorticity):
     """
     Vorticity budgets in y
@@ -652,6 +654,7 @@ class BudgetVorticity_y(BudgetVorticity):
         """
         super().__init__(*args, **kwargs)
         self.attrs["direction"] = 1  # y-direction
+
 
 class BudgetVorticity_z(BudgetVorticity):
     """
@@ -673,7 +676,7 @@ class BudgetVorticity_z(BudgetVorticity):
 # ====================== MKE Budget ========================
 
 
-class BudgetMKE(NewBudget): 
+class BudgetMKE(NewBudget):
     """
     MKE budget, RANS formulation
     """
@@ -681,9 +684,23 @@ class BudgetMKE(NewBudget):
     __slots__ = ()
 
     req_keys = [
-        "ubar", "vbar", "wbar", "pbar", "Tbar", 
-        "uu", "vv", "ww", "uv", "uw", "vw", 
-        "tau11", "tau22", "tau33", "tau12", "tau13", "tau23"
+        "ubar",
+        "vbar",
+        "wbar",
+        "pbar",
+        "Tbar",
+        "uu",
+        "vv",
+        "ww",
+        "uv",
+        "uw",
+        "vw",
+        "tau11",
+        "tau22",
+        "tau33",
+        "tau12",
+        "tau13",
+        "tau23",
     ]
     opt_keys = ["xAD", "yAD"]
 

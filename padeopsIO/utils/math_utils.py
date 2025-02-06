@@ -228,9 +228,10 @@ def div(f, dxi, axis=-1, sum=False, **kwargs):
 
 # ================== XARRAY FUNCTIONS ========================
 
+
 def assemble_xr_1d(ds, keys, dim="i", coords=None, rename=None):
     """Assemble 1d xarray tensor by expanding dimensions"""
-    if coords is None: 
+    if coords is None:
         coords = {dim: range(len(keys))}
     result = xr.concat([ds[key] for key in keys], dim=dim)
     result.coords[dim] = coords[dim]
@@ -261,10 +262,10 @@ def assemble_xr_nd(ds, nested_keys, dim=("i", "j"), coords=None, rename=None):
             return assemble_xr_1d(ds, keys, dim=dim[level], coords=coords)
         else:
             # top level recursion
-            result =  xr.concat(
+            result = xr.concat(
                 [_assemble(key, level - 1, coords) for key in keys], dim=dim[level]
             )
-            if coords is None: 
+            if coords is None:
                 coords = {dim[level]: range(len(keys))}
             result.coords[dim[level]] = coords[dim[level]]
             return result
@@ -289,9 +290,9 @@ def xr_gradient(data, dim, concat_along="i", raise_errors=True):
         Gradient of the input data.
     """
     gradient = []
-    if isinstance(dim, str): 
-        dim = (dim, )
-    
+    if isinstance(dim, str):
+        dim = (dim,)
+
     for _dim in dim:
         try:
             grad_dim = data.differentiate(_dim)
@@ -306,7 +307,7 @@ def xr_gradient(data, dim, concat_along="i", raise_errors=True):
     )  # Stack gradients along a new dimension
 
 
-def xr_d2x(ds, dim): 
+def xr_d2x(ds, dim):
     """
     Computes second derivates along dimension `dim` for xarray.DataArray `ds`.
     """
@@ -320,7 +321,7 @@ def xr_d2x(ds, dim):
     )  # if there aren't four points in the dimension, this will fail
     last4 = ds.isel({dim: slice(-4, None)})
 
-    # second order downwind: 
+    # second order downwind:
     d2fdx2[{dim: 0}] = (
         2 * first4
         - 5 * first4.shift({dim: -1})
@@ -328,7 +329,7 @@ def xr_d2x(ds, dim):
         - first4.shift({dim: -3})
     ).isel({dim: 0}) / (dx[0] ** 2)
 
-    # second order upwind: 
+    # second order upwind:
     d2fdx2[{dim: -1}] = (
         2 * last4
         - 5 * last4.shift({dim: 1})
@@ -339,7 +340,7 @@ def xr_d2x(ds, dim):
     return d2fdx2
 
 
-def xr_laplacian(ds, dim, concat_along="i", sum=False): 
+def xr_laplacian(ds, dim, concat_along="i", sum=False):
     """
     Computes the laplacian of xarray.DataArray `ds` along dimensions `dim`.
 
@@ -363,18 +364,18 @@ def xr_laplacian(ds, dim, concat_along="i", sum=False):
     ret = GridDataset(coords=ds.coords)
 
     ret = []
-    if isinstance(dim, str): 
-        dim = (dim, )
-    
+    if isinstance(dim, str):
+        dim = (dim,)
+
     for _dim in dim:
         ret.append(xr_d2x(ds, _dim))
 
     # rearrange to DataArray
     laplacian = xr.concat(ret, concat_along)
 
-    if sum: 
+    if sum:
         return laplacian.sum(concat_along)
-    else: 
+    else:
         return laplacian
 
 
@@ -389,7 +390,7 @@ def xr_div(ds, dim, mapping=None, sum=False):
     dim : str
         Dimension to compute divergence
     mapping : dict, optional
-        Mapping of indices to dimensions along dimension `dim`. 
+        Mapping of indices to dimensions along dimension `dim`.
         Default is {0: "x", 1: "y", 2: "z"}
     sum : bool, optional
         if True, performs implicit summation over repeated indices.
@@ -405,16 +406,16 @@ def xr_div(ds, dim, mapping=None, sum=False):
     mapping = {0: "x", 1: "y", 2: "z"}
 
     ret = []
-    for i in ds.coords[dim]: 
+    for i in ds.coords[dim]:
         axis = mapping[int(i)]
         ret.append(ds.sel({dim: i}).differentiate(axis))
 
     # rearrange to DataArray
     div = xr.concat(ret, dim)
 
-    if sum: 
+    if sum:
         return div.sum(dim)
-    else: 
+    else:
         return div
 
 

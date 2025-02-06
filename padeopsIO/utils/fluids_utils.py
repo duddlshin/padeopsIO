@@ -68,7 +68,6 @@ def compute_vorticity(ds, uvw_keys=None, in_place=False):
         return xr.DataArray(w_i, dims=("x", "y", "z", "i"), coords=ds.coords)
 
 
-
 def compute_delta_field(
     primary, precursor, budget_terms=None, avg_xy=True, in_place=True
 ):
@@ -202,16 +201,18 @@ def compute_RANS(
         tref = np.mean(Tbar, (0, 1))  # how buoyancy is defined in PadeOps
         ret["buoy"] = (Tbar - tref) / (theta0 * Fr**2)
 
-    # hotfix - cast to xarray 
-    ret_ds = GridDataset(coords=ds.coords).expand_dims(j=(0,1,2))
-    for key, val in ret.items(): 
+    # hotfix - cast to xarray
+    ret_ds = GridDataset(coords=ds.coords).expand_dims(j=(0, 1, 2))
+    for key, val in ret.items():
         dims = ("x", "y", "z", "j")
-        ret_ds[key] = xr.DataArray(val, dims=dims[:val.ndim])
+        ret_ds[key] = xr.DataArray(val, dims=dims[: val.ndim])
 
     return ret_ds
 
 
-def deficit_budget(ds_full, ds_bkgd, direction, Ro=None, lat=None, fplane=True, avg_xy=True):
+def deficit_budget(
+    ds_full, ds_bkgd, direction, Ro=None, lat=None, fplane=True, avg_xy=True
+):
     """
     Computes the streamwise momentum deficit budget
 
@@ -234,12 +235,12 @@ def deficit_budget(ds_full, ds_bkgd, direction, Ro=None, lat=None, fplane=True, 
     fplane : bool, optional
         Use f-plane approximation. Default True.
     avg_xy : bool, optional
-        xy-averages precursor fields if True. Default True. 
+        xy-averages precursor fields if True. Default True.
 
     Returns
     -------
     xr.Dataset
-        Dataset of of deficit budget fields: 
+        Dataset of of deficit budget fields:
         - adv: Advection of mean deficit by full flow (negative, moved to RHS)
         - prss: Deficit pressure gradient
         - rsfull: Full flow Reynolds stresses
@@ -302,12 +303,12 @@ def deficit_budget(ds_full, ds_bkgd, direction, Ro=None, lat=None, fplane=True, 
         raise NotImplementedError("TODO: Deficit budgets full Coriolis")
     ret["wakeadv"] = -deltau_j * dUidxj
 
-    # hotfix - cast to xarray 
-    ret_ds = GridDataset(coords=ds_full.coords).expand_dims(j=(0,1,2))
-    for key, val in ret.items(): 
+    # hotfix - cast to xarray
+    ret_ds = GridDataset(coords=ds_full.coords).expand_dims(j=(0, 1, 2))
+    for key, val in ret.items():
         dims = ("x", "y", "z", "j")
-        ret_ds[key] = xr.DataArray(val, dims=dims[:val.ndim])
-    
+        ret_ds[key] = xr.DataArray(val, dims=dims[: val.ndim])
+
     return ret_ds
 
 
@@ -319,19 +320,19 @@ def compute_vort_budget(
     fplane=True,
     Fr=None,
     theta0=300.0,
-    aggregate=1, 
+    aggregate=1,
 ):
     """
     Computes the offline vorticity budget in the requested component direction.
 
-    Terms are nd arrays [x, y, z, j, k, m] up to the level of aggregation. 
-    For example, the default (aggregate=1) will return [x, y, z, j] only. 
+    Terms are nd arrays [x, y, z, j, k, m] up to the level of aggregation.
+    For example, the default (aggregate=1) will return [x, y, z, j] only.
 
     Parameters
     ----------
     field_dict : xr.Dataset
         Dataset expecting velocity, temperature, subgrid stresses, and reynolds stresses
-    direction : int 
+    direction : int
         Direction to compute the vorticity budget
     Ro : float
         Rossby number as defined in LES
@@ -349,19 +350,19 @@ def compute_vort_budget(
     Returns
     -------
     xr.Dataset
-        Vorticity budget terms, including: 
+        Vorticity budget terms, including:
         - adv: Advection due to mean flow (negative, moved to RHS)
-        - str: Vortex stretching 
-        - buoy: Buoyancy torque 
-        - sgs: Subgrid stress torque 
-        - rs: Reynolds stress torque 
+        - str: Vortex stretching
+        - buoy: Buoyancy torque
+        - sgs: Subgrid stress torque
+        - rs: Reynolds stress torque
         - cor: Coriolis/planetary vorticity
-        - adm: Turbine forcing 
+        - adm: Turbine forcing
     """
 
     dims = ds.grid.shape
     dxi = ds.grid.dxi
-    ii = int(direction)  
+    ii = int(direction)
 
     # allocate memory for all the tensors
     adv_ij = np.zeros(dims + (3,))
@@ -387,7 +388,7 @@ def compute_vort_budget(
     yAD = ds["yAD"] if "yAD" in ds else np.zeros(dims)
     zAD = ds["zAD"] if "zAD" in ds else np.zeros(dims)
     AD = np.stack([xAD, yAD, zAD], axis=-1)  # this is the actual forcing
-    AD_ijk = np.zeros(dims + (3,))           # this is the vorticity budget term
+    AD_ijk = np.zeros(dims + (3,))  # this is the vorticity budget term
     compute_AD = np.any(AD)  # compute ADM component - boolean
 
     # compute coriolis
@@ -401,14 +402,10 @@ def compute_vort_budget(
     # Compute remaining tensor quantities
     for jj in range(3):
         # advection (on RHS, flipped sign)
-        adv_ij[..., jj] = -u_i[..., jj] * math.gradient(
-            w_i[..., ii], dxi, axis=jj
-        )
+        adv_ij[..., jj] = -u_i[..., jj] * math.gradient(w_i[..., ii], dxi, axis=jj)
 
         # vortex stretching
-        str_ij[..., jj] = w_i[:, :, :, jj] * math.gradient(
-            u_i[..., ii], dxi, axis=jj
-        )
+        str_ij[..., jj] = w_i[:, :, :, jj] * math.gradient(u_i[..., ii], dxi, axis=jj)
 
         # buoyancy torque
         if theta0 is not None:
@@ -424,8 +421,8 @@ def compute_vort_budget(
             eijk = math.e_ijk(ii, jj, kk)
             # nothing is ijk at the moment, Coriolis w/o trad. approx. is, however
 
-            # so is turbine forcing: 
-            if compute_AD and eijk != 0: 
+            # so is turbine forcing:
+            if compute_AD and eijk != 0:
                 AD_ijk = eijk * math.gradient(AD[..., kk], dxi, axis=jj)
 
             for mm in range(3):
@@ -446,7 +443,7 @@ def compute_vort_budget(
                         axis=jj,
                     )
 
-    # hotfix - cast to xarray 
+    # hotfix - cast to xarray
     ret = {
         "adv": adv_ij,
         "str": str_ij,
@@ -456,9 +453,11 @@ def compute_vort_budget(
         "adm": AD_ijk,
         "rs": rs_ijkm,
     }
-    ret_ds = GridDataset(coords=ds.coords).expand_dims(j=(0,1,2), k=(0,1,2), m=(0,1,2))
-    for key, val in ret.items(): 
-        dims = ["x", "y", "z", "j", "k", "m"][:val.ndim]
+    ret_ds = GridDataset(coords=ds.coords).expand_dims(
+        j=(0, 1, 2), k=(0, 1, 2), m=(0, 1, 2)
+    )
+    for key, val in ret.items():
+        dims = ["x", "y", "z", "j", "k", "m"][: val.ndim]
         ret_ds[key] = xr.DataArray(val, dims=dims)
 
     # aggregate down to more manageable dimensions
@@ -467,19 +466,19 @@ def compute_vort_budget(
     return ret_ds
 
 
-def compute_mke_budget(ds, Fr=None, theta0=300., aggregate=0): 
+def compute_mke_budget(ds, Fr=None, theta0=300.0, aggregate=0):
     """
     Computes the mean kinetic energy budget.
 
-    This is the first budget explicitly written for xarray Datasets. 
+    This is the first budget explicitly written for xarray Datasets.
 
     Parameters
     ----------
     ds : xr.Dataset
         Dataset with time-averaged fields
     Fr : float, optional
-        Froude number, defined Fr = U/sqrt(gL). If None, 
-        no buoyancy term is computed. Default None. 
+        Froude number, defined Fr = U/sqrt(gL). If None,
+        no buoyancy term is computed. Default None.
     theta0 : float, optional
         Reference potential temperature. Default 300.0
     aggregate: int, optional
@@ -488,7 +487,7 @@ def compute_mke_budget(ds, Fr=None, theta0=300., aggregate=0):
     Returns
     -------
     xr.Dataset
-        Dataset with budget terms: 
+        Dataset with budget terms:
         - adv: MKE advection from mean flow (negative, moved to RHS)
         - prss: Pressure work term
         - buoy: Buoyancy term (if Fr is not None)
@@ -502,32 +501,42 @@ def compute_mke_budget(ds, Fr=None, theta0=300., aggregate=0):
     tau_ij = math.assemble_xr_nd(ds, tau_keys, dim=("i", "j"))
 
     # let's also add turbine forcing
-    xAD = ds["xAD"] if "xAD" in ds else xr.zeros_like(ds['ubar'])
-    yAD = ds["yAD"] if "yAD" in ds else xr.zeros_like(ds['ubar'])
-    zAD = ds["zAD"] if "zAD" in ds else xr.zeros_like(ds['ubar'])
+    xAD = ds["xAD"] if "xAD" in ds else xr.zeros_like(ds["ubar"])
+    yAD = ds["yAD"] if "yAD" in ds else xr.zeros_like(ds["ubar"])
+    zAD = ds["zAD"] if "zAD" in ds else xr.zeros_like(ds["ubar"])
     AD = xr.concat([xAD, yAD, zAD], dim="i")  # this is the actual forcing
     compute_AD = np.any(AD)  # compute ADM component - boolean
 
-    # Compute budget terms now: 
-    mke = 0.5 * u_i.sum("i")**2
-    ret = GridDataset(coords=ds.coords).expand_dims(i=(0,1,2), j=(0,1,2)).transpose("x", "y", "z", "i", "j")
-    ret['adv'] = -u_i * math.xr_gradient(mke, dim=("x", "y", "z"), concat_along="i")
-    ret['prss'] = -u_i * math.xr_gradient(ds["pbar"], dim=("x", "y", "z"), concat_along="i")
-    if Fr is not None and theta0 is not None: 
-        ret['buoy'] = u_i.sel(i=0) * math.xr_gradient(ds["Tbar"], dim=("x", "y", "z"), concat_along="i") / (theta0 * Fr**2)
-    ret['shear'] = -u_i * math.xr_div(uiuj, dim="j", sum=False)
-    ret['diss'] = -u_i * math.xr_div(tau_ij, dim="j", sum=False)
-    if compute_AD: 
-        ret['adm'] = u_i * AD
+    # Compute budget terms now:
+    mke = 0.5 * u_i.sum("i") ** 2
+    ret = (
+        GridDataset(coords=ds.coords)
+        .expand_dims(i=(0, 1, 2), j=(0, 1, 2))
+        .transpose("x", "y", "z", "i", "j")
+    )
+    ret["adv"] = -u_i * math.xr_gradient(mke, dim=("x", "y", "z"), concat_along="i")
+    ret["prss"] = -u_i * math.xr_gradient(
+        ds["pbar"], dim=("x", "y", "z"), concat_along="i"
+    )
+    if Fr is not None and theta0 is not None:
+        ret["buoy"] = (
+            u_i.sel(i=0)
+            * math.xr_gradient(ds["Tbar"], dim=("x", "y", "z"), concat_along="i")
+            / (theta0 * Fr**2)
+        )
+    ret["shear"] = -u_i * math.xr_div(uiuj, dim="j", sum=False)
+    ret["diss"] = -u_i * math.xr_div(tau_ij, dim="j", sum=False)
+    if compute_AD:
+        ret["adm"] = u_i * AD
 
     # aggregate down
     axes_to_sum = ["i", "j"][aggregate:]
     return ret.transpose(..., *axes_to_sum).sum(axes_to_sum)
 
 
-def compute_residual(ds_budget, in_place=False): 
+def compute_residual(ds_budget, in_place=False):
     """
-    Computes the residual of a budget dataset. 
+    Computes the residual of a budget dataset.
 
     Parameters
     ----------
@@ -543,7 +552,7 @@ def compute_residual(ds_budget, in_place=False):
     tmp = math.new_aggregation(ds_budget, base_agg=0)
     residual = sum(tmp[key] for key in tmp)
 
-    if in_place: 
+    if in_place:
         ds_budget["residual"] = residual
-    else: 
+    else:
         return residual

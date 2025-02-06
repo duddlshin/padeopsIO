@@ -219,7 +219,7 @@ class Budget(GridDataset):
             lat=lat,
         )
         return self.deficit_y
-    
+
     def init_deficit_z(self, bkgd_budget, base_agg=0, Ro=None, Fr=None, lat=None):
         raise NotImplementedError("z-deficit budget not implemented yet.")
         # Ro = Ro or self.Ro
