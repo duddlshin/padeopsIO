@@ -791,7 +791,7 @@ class BudgetIO:
 
         self.printv(f"write_metadata(): metadata written to {filepath_meta}")
 
-    def read_fields(self, field_terms=None, tidx=None):
+    def read_fields(self, field_terms=None, tidx=None, time=None):
         """
         Reads fields from PadeOps output files into the self.field dictionary.
 
@@ -802,6 +802,8 @@ class BudgetIO:
             'u', 'v', 'w', 'p', 'T'
         tidx : int, optional
             reads fields from the specified time ID. Default: self.last_tidx
+        time : float, optional
+            reads fields from the specified time. Default: None
 
         Returns
         -------
@@ -832,7 +834,13 @@ class BudgetIO:
 
         # parse tidx
         if tidx is None:
-            tidx = self.last_tidx
+            if time is not None: 
+                tidx_all, times = self.get_tidx_pairs()
+                _id = np.argmin(np.abs(times - time))
+                tidx = tidx_all[_id]
+                self.printv(f"read_fields(): `time` = {time} passed in, found nearest time = {times[_id]}")
+            else: 
+                tidx = self.last_tidx
 
         else:  # find closest tidx
             tidx_all = self.unique_tidx()
@@ -894,7 +902,7 @@ class BudgetIO:
         return loaded_keys
 
     def read_budgets(
-        self, budget_terms="default", mmap=None, overwrite=False, tidx=None
+        self, budget_terms="default", overwrite=False, tidx=None, time=None, 
     ):
         """
         Accompanying method to write_budgets. Reads budgets saved as .npz files
@@ -903,15 +911,14 @@ class BudgetIO:
         ----------
         budget_terms : list
             Budget terms (see ._parse_budget_terms() and budgetkey.py)
-        mmap : str, optional
-            Default None. Sets the memory-map settings in numpy.load().
-            Expects None, 'r+', 'r', 'w+', 'c'
         overwrite : bool, optional
             If True, re-loads budgets that have already been loaded. Default False;
             checks existing budgets before loading new ones.
         tidx : int, optional
             If given, requests budget dumps at a specific time ID. Default None. This only affects
             reading from PadeOps output files; .npz and .mat are limited to one saved tidx.
+        time : float, optional
+            If given, requests budget dumps at a specific time. Default None.
 
         Returns
         -------
@@ -924,6 +931,12 @@ class BudgetIO:
 
         # parse budget_terms with the key
         key_subset = self._parse_budget_terms(budget_terms)
+
+        if time is not None: 
+            tidx_all, times = self.get_tidx_pairs(budget=True)
+            _id = np.argmin(np.abs(times - time))
+            tidx = tidx_all[_id]
+            self.printv(f"read_fields(): `time` = {time} passed in, found nearest time = {times[_id]}")
 
         # Decide: overwrite existing budgets or not?
         if overwrite:
@@ -959,7 +972,7 @@ class BudgetIO:
         if self.associate_padeops:
             self._read_budgets_padeops(key_subset, tidx=tidx)
         elif self.associate_npz:
-            self._read_budgets_npz(key_subset, mmap=mmap)
+            self._read_budgets_npz(key_subset)
         elif self.associate_mat:
             self._read_budgets_mat(key_subset)
         else:
@@ -1169,6 +1182,7 @@ class BudgetIO:
         sl=None,
         keys=None,
         tidx=None,
+        time=None, 
         xlim=None,
         ylim=None,
         zlim=None,
@@ -1193,6 +1207,8 @@ class BudgetIO:
             fields in slice `sl`. Keys to slice into from the input slice `sl`
         tidx : int
             time ID to read budgets from, see read_budgets(). Default None
+        time : float
+            time to read budgets from, see read_budgets(). Default None
         xlim, ylim, zlim : tuple
             in physical domain coordinates, the slice limits.
             If an integer is given, then the dimension of the
@@ -1216,14 +1232,14 @@ class BudgetIO:
         # parse what field arrays to slice into
         if field_terms is not None:
             # read fields
-            self.read_fields(field_terms=field_terms, tidx=tidx)
+            self.read_fields(field_terms=field_terms, tidx=tidx, time=time)
             preslice = self.field
             field_terms = [field_terms] if isinstance(field_terms, str) else field_terms
             keys = [term for term in field_terms if term in self.field.keys()]
 
         elif budget_terms is not None:
             # read budgets
-            self.read_budgets(budget_terms=budget_terms, tidx=tidx, overwrite=overwrite)
+            self.read_budgets(budget_terms=budget_terms, tidx=tidx, time=time, overwrite=overwrite)
             preslice = self.budget
             budget_terms = (
                 [budget_terms] if isinstance(budget_terms, str) else budget_terms
@@ -1231,7 +1247,7 @@ class BudgetIO:
             keys = [term for term in budget_terms if term in self.budget.keys()]
 
         elif field is not None:
-            raise NotImplementedError("Deprecated v1.0.0")
+            raise NotImplementedError("Deprecated v0.2.0")
 
         else:
             self.printv(
@@ -1999,6 +2015,23 @@ class BudgetIO:
             matching {TIDX: time} dictionary
         """
         return tools.get_timekey(self, budget=budget)
+
+    def get_tidx_pairs(self, budget=False):
+        """
+        Returns a dictionary matching time keys [TIDX in PadeOps] to non-dimensional times.
+
+        Arguments
+        ----------
+        self : BudgetIO object
+        budget : bool
+            If true, matches budget times from BudgetIO.unique_budget_tidx(). Default false.
+
+        Returns
+        -------
+        (array, array)
+            matching (TIDX, time) tuple
+        """
+        return tools.get_tidx_pairs(self, budget=budget)
 
     def get_time_ax(self, return_tidx=False, missing_init_ok=True):
         """

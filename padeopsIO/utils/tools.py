@@ -13,11 +13,11 @@ import warnings
 from . import io_utils
 
 
-def get_logfiles(path, search_str="*.o[0-9]*", id=-1): 
+def get_logfiles(path, search_str="*.o[0-9]*", id=-1):
     """
     Searches for all logfiles formatted "*.o[0-9]" (Stampede3 format)
-    and returns the entire list if `id` is None, otherwise returns 
-    the specific `id` requested. 
+    and returns the entire list if `id` is None, otherwise returns
+    the specific `id` requested.
 
     Parameters
     ----------
@@ -30,16 +30,18 @@ def get_logfiles(path, search_str="*.o[0-9]*", id=-1):
     """
     logfiles = list(path.glob(search_str))
 
-    if len(logfiles) == 0: 
+    if len(logfiles) == 0:
         warnings.warn("No logfiles found, returning")
         return []
-    elif id is None: 
+    elif id is None:
         return logfiles
-    else: 
+    else:
         return logfiles[id]
 
 
-def get_ustar(self=None, logfile=None, search_str="*.o[0-9]*", crop_budget=True, average=True):
+def get_ustar(
+    self=None, logfile=None, search_str="*.o[0-9]*", crop_budget=True, average=True
+):
     """
     Gleans ustar from the logfile.
 
@@ -48,7 +50,7 @@ def get_ustar(self=None, logfile=None, search_str="*.o[0-9]*", crop_budget=True,
     self : BudgetIO object, optional
         if None, then logfile must be a full path (and not a filename)
     logfile : path-like, optional
-        Path to logfile. 
+        Path to logfile.
     search_str : str, optional
         String to match. Default: searches for all files ending in '.o[0-9]*'.
     crop_budget : bool, optional
@@ -56,12 +58,14 @@ def get_ustar(self=None, logfile=None, search_str="*.o[0-9]*", crop_budget=True,
     average : bool, optional
         Time averages. Defaults to True.
     """
-    if self is not None: 
+    if self is not None:
         logfile = get_logfiles(self.dir_name, search_str=search_str, id=-1)
     elif logfile is not None:
         logfile = Path(logfile)
-    else: 
-        raise ValueError("get_ustar(): Requires either BudgetIO object `self` or path-like `logfile`.")
+    else:
+        raise ValueError(
+            "get_ustar(): Requires either BudgetIO object `self` or path-like `logfile`."
+        )
 
     # match the last one and read ustar... could fix this later
     ret = io_utils.query_logfile(logfile, search_terms=["u_star", "TIDX", "Time"])
@@ -109,6 +113,32 @@ def get_phihub(self, z_hub=0, return_degrees=False, use_fields=False, **slice_kw
         return np.interp(z_hub, self.grid.z, phi)
 
 
+def get_tidx_pairs(self, budget=False):
+    """
+    Returns a dictionary matching time keys [TIDX in PadeOps] to non-dimensional times.
+
+    Arguments
+    ----------
+    self : BudgetIO object
+    budget : bool
+        If true, matches budget times from BudgetIO.unique_budget_tidx(). Default false.
+
+    Returns
+    -------
+    (list, list)
+        matching (TIDX, time) tuple lists
+    """
+    if budget:
+        budget_tidx = self.unique_budget_tidx(return_last=False)
+        times, tidx = get_time_ax(self, return_tidx=True)
+        return budget_tidx, np.interp(budget_tidx, tidx, times)
+
+    else:
+        tidx = self.unique_tidx()
+        times = self.unique_times()
+        return tidx, times
+
+
 def get_timekey(self, budget=False):
     """
     Returns a dictionary matching time keys [TIDX in PadeOps] to non-dimensional times.
@@ -124,16 +154,9 @@ def get_timekey(self, budget=False):
     dict
         matching {TIDX: time} dictionary
     """
-    tidxs = self.unique_tidx()
-    times = self.unique_times()
-
-    timekey = {tidx: time for tidx, time in zip(tidxs, times)}
-
-    if budget:
-        keys = self.unique_budget_tidx(return_last=False)
-        return {key: timekey[key] for key in keys}
-    else:
-        return timekey
+    tidx, times = get_tidx_pairs(self, budget=budget)
+    # return dict(zip(tidx, times))  # this returns a bunch of 0D arrays... numpy 2.0 issues?
+    return {int(tid): float(time) for tid, time in zip(tidx, times)}
 
 
 def get_time_ax(self, return_tidx=False, missing_init_ok=True):
