@@ -76,6 +76,7 @@ def copy_padeops_data(
     else:
         case_dir = Path(case.dirname)
 
+
     # set export directory
     if export_dir is None:
         target = case_dir.parent / "export" / case.filename

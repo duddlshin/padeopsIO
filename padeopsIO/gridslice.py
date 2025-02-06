@@ -9,7 +9,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import xarray as xr
 from .budgetkey import key_labels
-from .gridslice_old import Grid3, Slice, SliceData
 
 labels = key_labels()
 
