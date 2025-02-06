@@ -5,8 +5,6 @@ Kirby Heck
 2024 July 24
 """
 
-import numpy as np
-import xarray as xr
 from .utils.io_utils import key_search_r
 from .budgetIO import BudgetIO
 from .budget_addons import *

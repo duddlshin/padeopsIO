@@ -6,7 +6,6 @@ Kirby Heck
 """
 
 import numpy as np
-import xarray as xr
 from abc import ABC
 
 from .utils import math_utils as math
