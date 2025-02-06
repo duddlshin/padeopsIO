@@ -272,7 +272,7 @@ def assemble_xr_nd(ds, nested_keys, dim=("i", "j"), coords=None, rename=None):
     return _assemble(nested_keys, 0, coords).rename(rename)
 
 
-def xr_gradient(data, dim, concat_along="i"):
+def xr_gradient(data, dim, concat_along="i", raise_errors=True):
     """
     Computes the gradient of an xarray.DataArray along specified dimensions.
 
@@ -293,21 +293,98 @@ def xr_gradient(data, dim, concat_along="i"):
         dim = (dim, )
     
     for _dim in dim:
-        grad_dim = data.differentiate(_dim)
+        try:
+            grad_dim = data.differentiate(_dim)
+        except ValueError as e:
+            if raise_errors:
+                raise e
+            else:
+                grad_dim = xr.zeros_like(data)
         gradient.append(grad_dim)
     return xr.concat(
         gradient, dim=concat_along
     )  # Stack gradients along a new dimension
 
 
+def xr_d2x(ds, dim): 
+    """
+    Computes second derivates along dimension `dim` for xarray.DataArray `ds`.
+    """
+    d2fdx2 = xr.zeros_like(ds)
+    dx = ds[dim].shift({dim: -1}) - ds[dim]
+    dx_last = ds[dim][-1] - ds[dim][-2]
 
-def xr_div(ds, dim, mapping=None, sum=False, **kwargs):
+    d2fdx2 = (ds.shift({dim: -1}) - 2 * ds + ds.shift({dim: 1})) / (dx**2)
+    first4 = ds.isel(
+        {dim: slice(0, 4)}
+    )  # if there aren't four points in the dimension, this will fail
+    last4 = ds.isel({dim: slice(-4, None)})
+
+    # second order downwind: 
+    d2fdx2[{dim: 0}] = (
+        2 * first4
+        - 5 * first4.shift({dim: -1})
+        + 4 * first4.shift({dim: -2})
+        - first4.shift({dim: -3})
+    ).isel({dim: 0}) / (dx[0] ** 2)
+
+    # second order upwind: 
+    d2fdx2[{dim: -1}] = (
+        2 * last4
+        - 5 * last4.shift({dim: 1})
+        + 4 * last4.shift({dim: 2})
+        - last4.shift({dim: 3})
+    ).isel({dim: -1}) / (dx_last**2)
+
+    return d2fdx2
+
+
+def xr_laplacian(ds, dim, concat_along="i", sum=False): 
+    """
+    Computes the laplacian of xarray.DataArray `ds` along dimensions `dim`.
+
+    Parameters
+    ----------
+    ds : xr.Dataset
+    dim : str or tuple
+        Dimensions to compute laplacian
+    concat_along : str, optional
+        Dimension to concatenate along. Default is "i".
+        If `sum` = True, this is ignored.
+    sum : bool
+        If True, performs implicit summation over repeated indices. Default False.
+
+    Returns
+    -------
+    xr.Dataset or xr.DataArray
+        Laplacian of `ds`
+    """
+
+    ret = GridDataset(coords=ds.coords)
+
+    ret = []
+    if isinstance(dim, str): 
+        dim = (dim, )
+    
+    for _dim in dim:
+        ret.append(xr_d2x(ds, _dim))
+
+    # rearrange to DataArray
+    laplacian = xr.concat(ret, concat_along)
+
+    if sum: 
+        return laplacian.sum(concat_along)
+    else: 
+        return laplacian
+
+
+def xr_div(ds, dim, mapping=None, sum=False):
     """
     Computes the 3D divergence of vector or tensor field f: dfi/dxi
 
     Parameters
     ----------
-    f : xr.Dataset
+    ds : xr.Dataset
         Vector or tensor field
     dim : str
         Dimension to compute divergence
