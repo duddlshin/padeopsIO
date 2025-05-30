@@ -9,6 +9,10 @@ as fast-access .npz binaries or exported to matlab as .mat files.
 
 Kirby Heck
 2024 May 23
+
+Modified: include postprocessing for 2d slices
+Ethan Shin
+2025 May 30
 """
 
 import numpy as np
@@ -25,6 +29,7 @@ from .utils.io_utils import structure_to_dict, key_search_r
 from .utils.nml_utils import parser
 from .utils import tools
 from .gridslice import get_xids, GridDataset
+from .gridslice2d import get_xids_2d, GridDataset_2d
 
 
 class BudgetIO:
@@ -249,7 +254,8 @@ class BudgetIO:
         # loads the grid, normalizes if `associate_turbines=True` and `normalize_origin='turb'`
         # (Should be done AFTER loading turbines to normalize origin)
         if not self.associate_grid:
-            self._load_grid(normalize_origin=normalize_origin)
+            # self._load_grid(normalize_origin=normalize_origin)
+            self._load_grid_2d(normalize_origin=normalize_origin)
 
         # object is reading from PadeOps output files directly
         self.printv(f"BudgetIO initialized using info files at time: {self.time:.06f}")
@@ -446,6 +452,52 @@ class BudgetIO:
 
         self.associate_grid = True
 
+    # EYS 05302025: load a 2d grid
+    def _load_grid_2d(
+        self, x=None, z=None, origin=(0, 0), normalize_origin=None
+    ):
+        """
+        Creates dx, dz, and xLine, zLine variables.
+
+        Expects (self.)Lx, Lz, nx, nz in kwargs or in self.input_nml
+        """
+
+        if self.associate_grid:
+            self.printv("_load_grid(): Grid already exists. ")
+            return
+
+        if self.associate_padeops:
+            # need to parse the inputfile to build the staggered grid
+            gridkeys = ["nx", "nz", "lx", "lz"]
+            gridvars = {key: key_search_r(self.input_nml, key) for key in gridkeys}
+
+            x = np.arange(gridvars["nx"]) * gridvars["lx"] / gridvars["nx"]
+            # staggered in z
+            z = (0.5 + np.arange(gridvars["nz"])) * gridvars["lz"] / gridvars["nz"]
+
+        # initialize grid variable
+        self.field = GridDataset_2d(x=x, z=z)
+        self.budget = GridDataset_2d(x=x, z=z)
+        self.grid = self.field.grid  # Grid3(x=x, z=z)
+        # copy grid keys into the namespace of `self`
+        for xi in ["x", "z"]:
+            for key in ["{:s}", "L{:s}", "d{:s}", "n{:s}"]:
+                setattr(self, key.format(xi), getattr(self.grid, key.format(xi)))
+
+        self.xLine, self.zLine = (
+            self.x,
+            self.z,
+        )  # try to phase out xLine, etc.
+
+        self.origin = origin  # default origin location
+        if normalize_origin:  # not None or False
+            # self.normalize_origin(
+            self.normalize_origin_2d(
+                normalize_origin
+            )  # expects tuple (x, z) or string "turb"
+
+        self.associate_grid = True
+
     def normalize_origin(self, origin=None):
         """
         Normalize the origin to point `origin` (x, y, z)
@@ -481,6 +533,43 @@ class BudgetIO:
         for ds in [self.field, self.budget]:
             ds.coords["x"] = ds["x"] - (origin[0] - self.origin[0])
             ds.coords["y"] = ds["y"] - (origin[1] - self.origin[1])
+            ds.coords["z"] = ds["z"] - (origin[2] - self.origin[2])
+        self.origin = origin
+
+    def normalize_origin_2d(self, origin=None):
+        """
+        Normalize the origin to point `origin` (x, z)
+
+        `origin` can also be a string "turb" to place the origin
+        at the leading turbine.
+
+        Parameters
+        ----------
+        xz : None or tuple
+            If tuple, moves the origin to (x, z)
+            If none, resets the origin.
+        """
+
+        if origin in ["turb", "turbine"]:
+            if self.associate_turbines:
+                self.turbineArray.sort(by="xloc")
+                origin = self.ta[0].pos  # position of the leading turbine
+            else:
+                if not self.quiet:
+                    print(
+                        "Attempted to normalize origin to `turbine`, but no turbines associated"
+                    )
+                return
+
+        if origin is None:
+            self.normalized_xyz = False
+            origin = (0, 0)
+        else:
+            self.normalized_xyz = True
+
+        # move the origin now:
+        for ds in [self.field, self.budget]:
+            ds.coords["x"] = ds["x"] - (origin[0] - self.origin[0])
             ds.coords["z"] = ds["z"] - (origin[2] - self.origin[2])
         self.origin = origin
 
@@ -902,6 +991,27 @@ class BudgetIO:
         self.printv("clear_budgets(): Cleared loaded budgets: {}".format(loaded_keys))
 
         return loaded_keys
+    
+    def clear_budgets_2d(self):
+        """
+        Clears any loaded budgets.
+
+        Returns
+        -------
+        keys (list) : list of cleared budgets.
+        """
+        if not self.associate_budgets:
+            self.printv("clear_budgets(): no budgets to clear. ")
+            return
+
+        loaded_keys = self.budget.keys()
+        self.budget = GridDataset_2d(coords=self.budget.coords)
+        self.budget_n = None
+        self.budget_tidx = None  # reset to final TIDX
+
+        self.printv("clear_budgets(): Cleared loaded budgets: {}".format(loaded_keys))
+
+        return loaded_keys
 
     def read_budgets(
         self,
@@ -988,6 +1098,93 @@ class BudgetIO:
 
         if len(key_subset) > 0:
             self.printv("read_budgets: Successfully loaded budgets. ")
+    
+    # EYS 05182025: padeops budgets from .s2d files
+    def read_budgets_2d(
+        self,
+        budget_terms="default",
+        overwrite=False,
+        tidx=None,
+        time=None,
+    ):
+        """
+        Accompanying method to write_budgets. Reads budgets saved as .npz files
+
+        Parameters
+        ----------
+        budget_terms : list
+            Budget terms (see ._parse_budget_terms() and budgetkey.py)
+        overwrite : bool, optional
+            If True, re-loads budgets that have already been loaded. Default False;
+            checks existing budgets before loading new ones.
+        tidx : int, optional
+            If given, requests budget dumps at a specific time ID. Default None. This only affects
+            reading from PadeOps output files; .npz and .mat are limited to one saved tidx.
+        time : float, optional
+            If given, requests budget dumps at a specific time. Default None.
+
+        Returns
+        -------
+        None
+            Saves result in self.budget
+        """
+
+        if not self.associate_budgets:
+            raise AttributeError("read_budgets(): No budgets linked. ")
+
+        # parse budget_terms with the key
+        key_subset = self._parse_budget_terms(budget_terms)
+
+        if time is not None:
+            tidx_all, times = self.get_tidx_pairs(budget=True)
+            _id = np.argmin(np.abs(times - time))
+            tidx = tidx_all[_id]
+            self.printv(
+                f"read_fields(): `time` = {time} passed in, found nearest time = {times[_id]}"
+            )
+
+        # Decide: overwrite existing budgets or not?
+        if overwrite:
+            # clear budgets -- we are explicitly overwriting budgets
+            self.clear_budgets_2d()
+
+        elif self.budget.keys() is not None:
+            # budgets are already loaded, check which ones
+            if (self.budget_tidx == tidx) or (tidx is None):
+                # remove items that have already been loaded in -- this omits overwriting these terms
+                key_subset = {
+                    key: key_subset[key]
+                    for key in key_subset
+                    if key not in self.budget.keys()
+                }
+
+                if self.verbose:  # print which keys were removed
+                    remove_keys = [
+                        key for key in key_subset if key in self.budget.keys()
+                    ]
+                    if len(remove_keys) > 0:
+                        self.print(
+                            "read_budgets(): requested budgets that have already been loaded. \
+                               \n  Removed the following: {}. Pass overwrite=True to read budgets anyway.".format(
+                                remove_keys
+                            )
+                        )
+
+            else:
+                # clear budgets -- different tidx is currently loaded
+                self.clear_budgets_2d()
+
+        if self.associate_padeops:
+            self._read_budgets_padeops_2d(key_subset, tidx=tidx)
+        elif self.associate_npz:
+            self._read_budgets_npz(key_subset)
+        elif self.associate_mat:
+            self._read_budgets_mat(key_subset)
+        else:
+            raise AttributeError("read_budgets(): No budgets linked. ")
+
+        if len(key_subset) > 0:
+            self.printv("read_budgets: Successfully loaded budgets. ")
 
     def _read_budgets_padeops(self, key_subset, tidx):
         """
@@ -1041,6 +1238,63 @@ class BudgetIO:
             self.budget[key] = tmp.reshape(
                 (self.nx, self.ny, self.nz), order="F"
             )  # reshape into a 3D array
+
+        if self.verbose and len(key_subset) > 0:
+            print("BudgetIO loaded the budget fields at TIDX:" + "{:.06f}".format(tidx))
+
+    # EYS 05182025: padeops budgets from .s2d files
+    def _read_budgets_padeops_2d(self, key_subset, tidx):
+        """
+        Uses a method similar to ReadVelocities_Budget() in PadeOpsViz to read and store full-field budget terms.
+        """
+
+        if tidx is None:
+            if self.budget or self.budget_tidx is not None:
+                # if there are budgets loaded, continue loading from that TIDX
+                tidx = self.budget_tidx
+            else:
+                # load budgets from the last available TIDX
+                tidx = self.unique_budget_tidx(return_last=True)
+
+        elif tidx not in self.all_budget_tidx:
+            # find the nearest that actually exists
+            tidx_arr = np.array(self.all_budget_tidx)
+            closest_tidx = tidx_arr[np.argmin(np.abs(tidx_arr - tidx))]
+
+            self.print(
+                "Requested budget tidx={:d} could not be found. Using tidx={:d} instead.".format(
+                    tidx, closest_tidx
+                )
+            )
+            tidx = closest_tidx
+
+        try:
+            self.update_time(tidx)
+        except FileNotFoundError:
+            self.warn(f"Tried to update time, but no info file found for TIDX {tidx}")
+            pass  # probably budget and field dumps not synchronized
+
+        self.printv(f"Loading budgets {list(key_subset.keys())} from {tidx}")
+
+        # Match requested keys with (budget, term) tuples and load Fortran binaries
+        for key in key_subset:
+            budget, term = BudgetIO.key[key]
+
+            searchstr = f"Run{self.runid:02d}_budget{budget:01d}_term{term:02d}_t{tidx:06d}_*.s2D"
+            try:
+                u_fname = next(self.dirname.glob(searchstr))
+            except StopIteration as e:
+                raise FileNotFoundError(f"No files found at {searchstr}")
+
+            self.budget_n = int(
+                re.findall(".*_t\d+_n(\d+)", str(u_fname))[0]
+            )  # extract n from string
+            self.budget_tidx = tidx  # update self.budget_tidx
+
+            tmp = np.fromfile(u_fname, dtype=np.dtype(np.float64), count=-1)
+            self.budget[key] = tmp.reshape(
+                (self.nx, self.nz), order="F"
+            )  # reshape into a 2D array
 
         if self.verbose and len(key_subset) > 0:
             print("BudgetIO loaded the budget fields at TIDX:" + "{:.06f}".format(tidx))
@@ -2080,3 +2334,4 @@ if __name__ == "__main__":
     TODO - add unit tests to class
     """
     print("padeopsIO: No unit tests included yet. ")
+
