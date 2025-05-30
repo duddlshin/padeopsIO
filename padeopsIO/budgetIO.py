@@ -29,7 +29,7 @@ from .utils.io_utils import structure_to_dict, key_search_r
 from .utils.nml_utils import parser
 from .utils import tools
 from .gridslice import get_xids, GridDataset
-from .gridslice2d import get_xids_2d, GridDataset_2d
+# from .gridslice2d import get_xids_2d, GridDataset_2d   # EYS: do i need this for 2d slices?
 
 
 class BudgetIO:
@@ -254,8 +254,8 @@ class BudgetIO:
         # loads the grid, normalizes if `associate_turbines=True` and `normalize_origin='turb'`
         # (Should be done AFTER loading turbines to normalize origin)
         if not self.associate_grid:
-            # self._load_grid(normalize_origin=normalize_origin)
-            self._load_grid_2d(normalize_origin=normalize_origin)
+            self._load_grid(normalize_origin=normalize_origin)
+            # self._load_grid_xz(normalize_origin=normalize_origin) # EYS: do i need this for 2d slices?
 
         # object is reading from PadeOps output files directly
         self.printv(f"BudgetIO initialized using info files at time: {self.time:.06f}")
@@ -453,7 +453,7 @@ class BudgetIO:
         self.associate_grid = True
 
     # EYS 05302025: load a 2d grid
-    def _load_grid_2d(
+    def _load_grid_xz(
         self, x=None, z=None, origin=(0, 0), normalize_origin=None
     ):
         """
@@ -476,8 +476,8 @@ class BudgetIO:
             z = (0.5 + np.arange(gridvars["nz"])) * gridvars["lz"] / gridvars["nz"]
 
         # initialize grid variable
-        self.field = GridDataset_2d(x=x, z=z)
-        self.budget = GridDataset_2d(x=x, z=z)
+        self.field = GridDataset(x=x, y=None, z=z)
+        self.budget = GridDataset(x=x, y=None, z=z)
         self.grid = self.field.grid  # Grid3(x=x, z=z)
         # copy grid keys into the namespace of `self`
         for xi in ["x", "z"]:
@@ -492,7 +492,7 @@ class BudgetIO:
         self.origin = origin  # default origin location
         if normalize_origin:  # not None or False
             # self.normalize_origin(
-            self.normalize_origin_2d(
+            self.normalize_origin_xz(
                 normalize_origin
             )  # expects tuple (x, z) or string "turb"
 
@@ -536,7 +536,7 @@ class BudgetIO:
             ds.coords["z"] = ds["z"] - (origin[2] - self.origin[2])
         self.origin = origin
 
-    def normalize_origin_2d(self, origin=None):
+    def normalize_origin_xz(self, origin=None):    # EYS: do i need this for 2d slices?
         """
         Normalize the origin to point `origin` (x, z)
 
@@ -992,7 +992,7 @@ class BudgetIO:
 
         return loaded_keys
     
-    def clear_budgets_2d(self):
+    def clear_budgets_xz(self):    # EYS: do i need this for 2d slices?
         """
         Clears any loaded budgets.
 
@@ -1005,7 +1005,7 @@ class BudgetIO:
             return
 
         loaded_keys = self.budget.keys()
-        self.budget = GridDataset_2d(coords=self.budget.coords)
+        self.budget = GridDataset(coords=self.budget.coords)
         self.budget_n = None
         self.budget_tidx = None  # reset to final TIDX
 
@@ -1100,7 +1100,7 @@ class BudgetIO:
             self.printv("read_budgets: Successfully loaded budgets. ")
     
     # EYS 05182025: padeops budgets from .s2d files
-    def read_budgets_2d(
+    def read_budgets_xz(
         self,
         budget_terms="default",
         overwrite=False,
@@ -1146,7 +1146,7 @@ class BudgetIO:
         # Decide: overwrite existing budgets or not?
         if overwrite:
             # clear budgets -- we are explicitly overwriting budgets
-            self.clear_budgets_2d()
+            self.clear_budgets_xz()
 
         elif self.budget.keys() is not None:
             # budgets are already loaded, check which ones
@@ -1172,10 +1172,10 @@ class BudgetIO:
 
             else:
                 # clear budgets -- different tidx is currently loaded
-                self.clear_budgets_2d()
+                self.clear_budgets_xz()
 
         if self.associate_padeops:
-            self._read_budgets_padeops_2d(key_subset, tidx=tidx)
+            self._read_budgets_padeops_xz(key_subset, tidx=tidx)
         elif self.associate_npz:
             self._read_budgets_npz(key_subset)
         elif self.associate_mat:
@@ -1243,7 +1243,7 @@ class BudgetIO:
             print("BudgetIO loaded the budget fields at TIDX:" + "{:.06f}".format(tidx))
 
     # EYS 05182025: padeops budgets from .s2d files
-    def _read_budgets_padeops_2d(self, key_subset, tidx):
+    def _read_budgets_padeops_xz(self, key_subset, tidx):
         """
         Uses a method similar to ReadVelocities_Budget() in PadeOpsViz to read and store full-field budget terms.
         """
